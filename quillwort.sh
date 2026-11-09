@@ -5,9 +5,10 @@
 #   sudo bash ./quillwort.sh --preview       # walk through everything, change NOTHING
 #   sudo bash ./quillwort.sh --yes [flags]   # unattended: never prompts (see --help)
 #
-# It does the same steps as docs/INSTALL.md, in the same order, with the same
-# checks: offline tests, detection, config review, secrets, dry run, units,
-# sandboxed run, web server, firewall, timer, security score.
+# Run it after INSTALL.md steps 0.1-1.1 (prerequisites, download). It then does
+# INSTALL.md steps 1.2 to 11, in order, with the same checks: offline tests,
+# code install, detection and config review, secrets, dry run, units and a
+# sandboxed run, web server, firewall, timer, phone tips, security score.
 # To undo everything: docs/INSTALL.md, section "Rollback".
 
 set -Eeuo pipefail
@@ -175,7 +176,7 @@ ANSWER_LOG=""; [[ -n $TEE_PID ]] && ANSWER_LOG="$LOG"
 ((YES)) && warn "UNATTENDED mode: no questions; options, then detected defaults are used"
 
 # --------------------------------------------------------------- preflight
-step "Preflight"
+step "Before step 1.2: check the prerequisites (steps 0.1 and 1.1)"
 ((PREVIEW)) && warn "PREVIEW mode: nothing on this system will be changed"
 if ((! PREVIEW)) && [[ $EUID -ne 0 ]]; then die "run with sudo:  sudo bash $0"; fi
 [[ -x $PY ]] || die "$PY not found"
@@ -194,16 +195,17 @@ for f in collect.py serve.py detect.py unlock.py homelab_dash web systemd; do
 done
 ok "source: $SRC"
 
-step "Offline tests (fake data, nothing touched)"
+step "Step 1.2: offline tests (fake data, nothing touched)"
 if [[ $RUN_AS != root ]]; then
   sudo -u "$RUN_AS" bash -c "cd '$SRC' && $PY -B -m unittest discover -s tests -q" </dev/null 2>&1 | grep -E '^(Ran|OK|FAILED)'
 else
   (cd "$SRC" && $PY -B -m unittest discover -s tests -q) 2>&1 | grep -E '^(Ran|OK|FAILED)'
 fi
 ok "tests passed"
+printf '  Step 1.3 (optional fake-data demo) is skipped. To try it later: python3 %s/tests/demo.py --port 8099\n' "$SRC"
 
 # ------------------------------------------------------------- the questions
-step "Detecting this server (read-only)"
+step "Detect this server for the default answers (read-only)"
 FACTS="$($PY -I -B "$SRC/detect.py" --json 2>/dev/null)"
 eval "$($PY -c '
 import json, shlex, sys
@@ -225,7 +227,7 @@ for k, v in out.items():
 ok "host $D_HOST, address ${D_IP:-?}, LAN ${D_SUBNET:-?}, firewall $D_FW, Tailscale $([[ $D_TS == y ]] && echo yes || echo no)"
 [[ $D_SMART == 1 ]] || warn "smartctl not installed: no drive health (install smartmontools and re-run to add it)"
 
-step "Your choices"
+step "Your choices (used by steps 2-9)"
 INSTALL_DIR="$(ask "Install the code to" "${A_INSTALL:-/opt/homelab-dash}")";   safe_dir "$INSTALL_DIR"
 CONF_DIR="$(ask "Config folder" "${A_CONF:-/etc/homelab-dash}")";             safe_dir "$CONF_DIR"
 printf '  Data folder is fixed: %s\n' "$DATA_DIR"
@@ -253,7 +255,7 @@ CFG="$CFG_LIVE"; ((PREVIEW)) && CFG="$WORK/config.ini"
 CODE="$INSTALL_DIR"; ((PREVIEW)) && CODE="$SRC"   # preview runs the code from the repo
 
 # ------------------------------------------------------------------ install
-step "Install the code (root-owned, read-only)"
+step "Step 2: install the code (root-owned, read-only)"
 if [[ -e $INSTALL_DIR && ! -f $INSTALL_DIR/collect.py && -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]]; then
   die "$INSTALL_DIR exists and is not a homelab-dash install; pick another folder"
 fi
@@ -268,7 +270,7 @@ if ((! PREVIEW)); then
 fi
 ok "code in $INSTALL_DIR"
 
-step "Config"
+step "Step 3: config folder, draft, review, validate"
 run install -d -o root -g root -m 755 "$CONF_DIR"
 NEW_CONFIG=1
 if [[ -f $CFG_LIVE ]]; then
@@ -304,7 +306,7 @@ if ((NEW_CONFIG)); then
 fi
 
 # ------------------------------------------------------------------ secrets
-step "Secrets"
+step "Step 4: secrets"
 mapfile -t SECRETS < <($PY - "$CFG" <<'EOF'
 import configparser, sys
 cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=("#", ";"))
@@ -390,7 +392,7 @@ else
 fi
 
 # ------------------------------------------------------------------ dry run
-step "Dry run of the collector (writes nothing)"
+step "Step 5: dry run of the collector (writes nothing)"
 DRY_ERR="$WORK/dry.txt"
 $PY -I -B "$CODE/collect.py" --config "$CFG" --dry-run 2>"$DRY_ERR" >/dev/null || die "dry run failed: $(tail -1 "$DRY_ERR")"
 grep '^#' "$DRY_ERR" | sed 's/^/  /'
@@ -402,7 +404,7 @@ else
 fi
 
 # -------------------------------------------------------------------- units
-step "systemd units"
+step "Steps 6.1-6.5: systemd units and drop-ins"
 for u in homelab-dash-collector.service homelab-dash-collector.timer homelab-dash-web.service; do
   sed -e "s#/opt/homelab-dash#$INSTALL_DIR#g" -e "s#/etc/homelab-dash#$CONF_DIR#g" \
       -e "s#SocketBindAllow=tcp:8088#SocketBindAllow=tcp:$PORT#" "$SRC/systemd/$u" | put "/etc/systemd/system/$u" 644
@@ -417,11 +419,13 @@ if [[ $D_HOME == 1 || $D_SMART == 0 ]]; then
 fi
 run systemctl daemon-reload
 if ((! PREVIEW)); then
+  N="$(systemctl cat homelab-dash-web.service 2>/dev/null | grep -c '^IPAddressAllow=' || true)"
+  [[ $N == 2 ]] && ok "network drop-in loaded (IPAddressAllow in unit + drop-in)" || warn "expected 2 IPAddressAllow= lines, found $N"
   V="$(systemd-analyze verify /etc/systemd/system/homelab-dash-*.service /etc/systemd/system/homelab-dash-*.timer 2>&1 || true)"
   [[ -z $V ]] && ok "units verified" || { echo "$V" | sed 's/^/    /'; warn "systemd-analyze verify printed the above"; }
 fi
 
-step "First run inside the sandbox (timer still off)"
+step "Step 6.6: first run inside the sandbox (timer still off)"
 run systemctl start homelab-dash-collector.service
 if ((! PREVIEW)); then
   SUM="$($PY -I -B "$INSTALL_DIR/collect.py" --config "$CFG_LIVE" --summary || true)"
@@ -436,7 +440,7 @@ if ((! PREVIEW)); then
   fi
 fi
 
-step "Web server"
+step "Step 7: web server"
 run systemctl enable --now homelab-dash-web.service
 if ((! PREVIEW)); then
   sleep 1
@@ -462,7 +466,7 @@ EOF
 fi
 
 # ----------------------------------------------------------------- firewall
-step "Firewall"
+step "Step 8: firewall (home network and Tailscale only)"
 fw_rules() {  # fw_rules show|apply
   local act=$1
   case "$D_FW" in
@@ -485,16 +489,36 @@ if [[ $D_FW != ufw && $D_FW != firewalld ]]; then
 else
   echo "  Rules to add ($D_FW):"
   fw_rules show
-  if yes_no "Add them now" "${A_FW:-y}"; then fw_rules apply; ok "firewall rules added"
+  if yes_no "Add them now" "${A_FW:-y}"; then
+    fw_rules apply
+    if ((! PREVIEW)); then
+      if [[ $D_FW == ufw ]]; then FWN="$(ufw status | grep -c " $PORT/tcp" || true)"
+      else FWN="$(firewall-cmd --list-rich-rules | grep -c "port=\"$PORT\"" || true)"; fi
+      ((FWN >= 1 + TS)) && ok "firewall rules active for port $PORT ($FWN found)" || warn "expected $((1 + TS)) rule(s) for port $PORT, found $FWN"
+    fi
   else warn "skipped: add them later (INSTALL.md step 8)"; fi
 fi
 
 # -------------------------------------------------------------------- timer
-step "Timer"
+step "Step 9: timer"
 run systemctl enable --now homelab-dash-collector.timer
-((PREVIEW)) || { systemctl list-timers homelab-dash-collector.timer --no-pager | sed -n 1,2p | sed 's/^/  /'; ok "collector runs about every 60 s"; }
+if ((! PREVIEW)); then
+  systemctl list-timers homelab-dash-collector.timer --no-pager | sed -n 1,2p | sed 's/^/  /'
+  T0="$(date +%s)"; FRESH=0
+  printf '  waiting for the timer'"'"'s first run (up to 2 minutes) '
+  for _ in $(seq 1 24); do
+    GEN="$($PY -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["generated_at"]))' "$DATA_DIR/status.json" 2>/dev/null || echo 0)"
+    if ((GEN >= T0)); then FRESH=1; break; fi
+    printf '.'; sleep 5
+  done; echo
+  ((FRESH)) && ok "timer ran the collector; data is fresh" || warn "no new data yet: check  journalctl -u homelab-dash-collector -n 20"
+fi
 
-step "Security score (lower is better)"
+step "Step 10: add it to your phone's home screen (on the phone)"
+echo "  iPhone (Safari): open the page, Share, Add to Home Screen."
+echo "  Android (Chrome): open the page, menu, Add to Home screen."
+
+step "Step 11: security score (lower is better)"
 if ((! PREVIEW)); then
   systemd-analyze security homelab-dash-collector.service homelab-dash-web.service --no-pager 2>/dev/null | grep -E 'Overall' | sed 's/^/  /' || true
 else
