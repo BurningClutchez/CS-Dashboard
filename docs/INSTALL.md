@@ -465,88 +465,65 @@ The web server's `DynamicUser` leaves no account behind (`getent passwd | grep h
 
 ## TL;DR: quick install script
 
-`quillwort.sh` does steps 1.2 to 11 of this guide for you, in order, with the same checks.
-It asks for paths and settings as it goes, and a detected value is the default each time.
-You only do the few commands below by hand first.
+`quillwort.sh` does steps 1.2–11 of this guide for you, in order, with the same checks. It asks for
+paths and settings as it goes; the detected value is the default each time.
 
-### Before you run it
+### Before you run it (one at a time, as your normal user)
 
-Run these one at a time, as your normal user.
-
-**T1. Check Python and systemd** (step 0.1).
-This only reads: you need Python 3.8+ and systemd 247+.
-
+**T1. Check Python 3.8+ and systemd 247+** (step 0.1). Only reads.
 ```bash
 python3 --version; systemctl --version | head -1
 ```
-
-**T2. (Optional) Install smartmontools** (step 0.2).
-This adds drive health (SMART) to the dashboard. Skip it if you don't want that; the installer then
-leaves SMART out. Fedora: `sudo dnf install smartmontools`.
-
+**T2. (Optional) Install smartmontools** for drive health (step 0.2). Without it, SMART is left out. Fedora: `sudo dnf install smartmontools`.
 ```bash
 sudo apt install smartmontools
 ```
-
-**T3. Download the code** (step 1.1).
-This puts the code in your home folder, owned by you. If the repo is private, use the ZIP and `scp` route from step 1.1.
-
+**T3. Download the code** into your home folder (step 1.1). Private repo? Use the ZIP and `scp` route from step 1.1.
 ```bash
 git clone https://github.com/BurningClutchez/CS-Dashboard.git ~/homelab-dash-src
 ```
-
-**T4. Go into that folder.** The installer must be run from here.
-
+**T4. Go into that folder.** The installer must run from here.
 ```bash
 cd ~/homelab-dash-src
 ```
-
-**T5. Get sudo ready** so its password prompt doesn't interrupt the installer's questions later.
-
+**T5. Get sudo ready**, so its password prompt doesn't interrupt the installer's questions.
 ```bash
 sudo -v
 ```
 
 ### Run it
 
-**T6. Preview (recommended first).** It asks every question and shows every command and file it
-*would* run or write, but changes nothing.
-
+**T6. Preview first.** Asks everything and shows every command and file it *would* run or write. Changes nothing.
 ```bash
 sudo bash ./quillwort.sh --preview
 ```
-
-**T7. Install.** Answer the questions; press Enter to accept the default shown in `[brackets]`.
-
+**T7. Install.** Answer the questions; press Enter to accept the default in `[brackets]`.
 ```bash
 sudo bash ./quillwort.sh
 ```
-
-**T8. Or install unattended.** No questions: every answer comes from the flags below, then the
-detected defaults. Try it with `--preview` added first.
-
+**T8. Or install unattended.** No questions: answers come from flags, then the detected defaults. Add `--preview` to try it first.
 ```bash
-sudo bash ./quillwort.sh --yes --subnet 192.168.1.0/24 --tailscale yes --secrets vault --vault /path/vault.yml --vault-password-file /path/vault-pass
+sudo bash ./quillwort.sh --yes --subnet 192.168.1.0/24 --secrets vault --vault /path/vault.yml --vault-password-file /path/pass
 ```
 
-### What it does, step by step
+### What it does
 
 | Installer step | Guide step | What happens | Asks you |
 |---|---|---|---|
-| Prerequisites | 0.1, 1.1 | checks Python, systemd, and that it runs from the downloaded folder | nothing |
-| Offline tests | 1.2 | runs the fake-data tests; stops if any fail. 1.3 (demo) is skipped | nothing |
-| Your choices | n/a | detects the server (read-only) for the defaults | install folder, config folder, port, home subnet, Tailscale |
-| Install the code | 2 | copies the code to the install folder, owned by root, read-only | nothing |
-| Config | 3 | writes a draft config, opens it in your editor, validates it until it's valid with no secret values in it | keep an existing config? review the draft? |
-| Secrets | 4 | only for cards that need one | 1 = type them (hidden), 2 = Ansible vault (RAM only), 3 = skip |
-| Dry run | 5 | runs every check once and writes nothing; lists errors | continue if there are errors? (default no) |
-| Units | 6.1–6.5 | installs the 3 units and the network drop-in with your paths, port and subnet | nothing |
-| Sandboxed run | 6.6 | first real run; warns about any error that happens only inside the sandbox | nothing |
-| Web server | 7 | starts it; checks 200 for the page, 405 for POST, 404 for `state.json`, not root | nothing |
-| Firewall | 8 | adds the LAN (and Tailscale) rule for ufw or firewalld and verifies it. Never *enables* a firewall | add the rules? |
-| Timer | 9 | starts it and waits for its first run | nothing |
-| Phone | 10 | prints how to add the page to your home screen | nothing |
-| Security score | 11 | prints the `systemd-analyze security` score of both units | nothing |
+| Prerequisites | 0.1, 1.1 | checks Python, systemd, and that it runs from the downloaded folder | – |
+| Offline tests | 1.2 | fake-data tests; stops if any fail (1.3 demo is skipped) | – |
+| Your choices | – | detects the server (read-only) for the defaults | install and config folders, port, subnet, Tailscale |
+| Install the code | 2 | copies the code, owned by root, read-only | – |
+| Config | 3 | drafts the config, opens your editor, re-validates until it's valid and has no secret values | keep existing config? review the draft? |
+| Secrets | 4 | only for cards that need one | 1 type them (hidden), 2 Ansible vault (RAM only), 3 skip |
+| Dry run | 5 | every check once, writes nothing, lists errors | continue on errors? (default no) |
+| Units | 6.1–6.5 | 3 units and the network drop-in, with your paths, port and subnet | – |
+| Sandboxed run | 6.6 | first real run; warns about errors that happen only inside the sandbox | – |
+| Web server | 7 | starts it; checks 200 for `/`, 405 for POST, 404 for `state.json`, not root | – |
+| Firewall | 8 | adds and verifies the LAN (and Tailscale) rule for ufw or firewalld; never *enables* a firewall | add the rules? |
+| Timer | 9 | starts it and waits for its first run | – |
+| Phone | 10 | prints how to add the page to your home screen | – |
+| Security score | 11 | `systemd-analyze security` for both units | – |
 
 If a step fails, it stops and names the step. Everything before that step stays done.
 
@@ -555,27 +532,27 @@ If a step fails, it stops and names the step. Everything before that step stays 
 | Flag | Environment variable | What it does / default |
 |---|---|---|
 | `--preview` | | ask and show everything, change nothing |
-| `--yes`, `-y` | | unattended: never ask; uses the flags below, then the detected defaults |
+| `--yes`, `-y` | | unattended: never ask; flags first, then detected defaults |
 | `--help`, `-h` | | list all flags |
-| `--log FILE` | | log file. Default `/var/log/homelab-dash-install.log` (root-only, 600; your answers and check results, never secret values). With `--preview`, a log is written only if you give `--log` |
+| `--log FILE` | | default `/var/log/homelab-dash-install.log` (root-only, 600; answers and check results, never secrets). With `--preview`, only written if given |
 | `--no-log` | | don't write a log |
-| `--install-dir DIR` | `HLDASH_INSTALL_DIR` | default `/opt/homelab-dash`. Not under `/home`, `/root`, `/tmp` or `/run` |
+| `--install-dir DIR` | `HLDASH_INSTALL_DIR` | default `/opt/homelab-dash`; not under `/home`, `/root`, `/tmp` or `/run` |
 | `--config-dir DIR` | `HLDASH_CONFIG_DIR` | default `/etc/homelab-dash` |
 | `--port N` | `HLDASH_PORT` | default: the first free port from 8088 |
 | `--subnet CIDR` | `HLDASH_SUBNET` | home network allowed to open the page; default: detected |
-| `--tailscale yes\|no` | `HLDASH_TAILSCALE` | also allow Tailscale; default: yes if Tailscale is installed |
+| `--tailscale yes\|no` | `HLDASH_TAILSCALE` | also allow Tailscale; default: yes if installed |
 | `--keep-config yes\|no` | `HLDASH_KEEP_CONFIG` | keep an existing `config.ini`; default yes (no = back it up and write a new draft) |
-| `--secrets type\|vault\|skip` | `HLDASH_SECRETS` | how to provide secrets. With `--yes`: `vault` or `skip` only, and **required** if a card needs a secret |
+| `--secrets type\|vault\|skip` | `HLDASH_SECRETS` | with `--yes`: `vault` or `skip` only, and **required** if a card needs a secret |
 | `--vault FILE` | `HLDASH_VAULT` | your Ansible vault file |
-| `--vault-password-file FILE` | `HLDASH_VAULT_PASSWORD_FILE` | vault password file; **required** with `--yes --secrets vault` |
-| `--vault-key FILE=KEY` | `HLDASH_VAULT_KEYS="pihole.pass=key …"` | which vault key fills which secret file; repeatable. Defaults: `pihole_password`, `jellyfin_api_key`, `plex_token` |
-| `--shred-old-secrets yes\|no` | `HLDASH_SHRED_OLD` | after switching to the vault, shred old secret files on disk. Default: asked, or **no** with `--yes` |
+| `--vault-password-file FILE` | `HLDASH_VAULT_PASSWORD_FILE` | **required** with `--yes --secrets vault` |
+| `--vault-key FILE=KEY` | `HLDASH_VAULT_KEYS="pihole.pass=key …"` | vault key for each secret file; repeatable. Defaults `pihole_password`, `jellyfin_api_key`, `plex_token` |
+| `--shred-old-secrets yes\|no` | `HLDASH_SHRED_OLD` | after switching to the vault, shred old on-disk secrets. Default: asked, **no** with `--yes` |
 | `--firewall yes\|no` | `HLDASH_FIREWALL` | add the firewall rules; default yes |
 | `--continue-on-errors` | `HLDASH_CONTINUE_ON_ERRORS=yes` | carry on when the dry run shows errors; default: stop |
 
-Secret values are never taken from flags or variables. They come from a hidden prompt or from your vault.
+Secret values are never taken from flags or variables, only from a hidden prompt or your vault.
 
 ### After it finishes
 
-It ends with `== Done` and prints the page's address. Then follow [TEST-PLAN.md](TEST-PLAN.md).
-To undo it, use [Rollback](#rollback-remove-everything) above; the installer puts files in exactly the same places as the manual steps.
+It ends with `== Done` and the page's address. Then follow [TEST-PLAN.md](TEST-PLAN.md).
+To undo it, use [Rollback](#rollback-remove-everything) above: the installer puts files in exactly the same places as the manual steps.
