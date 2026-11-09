@@ -48,7 +48,7 @@ no pip, no Docker, no Node and no build step.
 
 ## Start here
 
-1. Read **[docs/INSTALL.md](docs/INSTALL.md)**: one command per step, each with a check, a dry run before the timer goes on, and the full **rollback**.
+1. Read **[docs/INSTALL.md](docs/INSTALL.md)** (or jump to its *TL;DR* for the interactive `quillwort.sh` installer): one command per step, each with a check, a dry run before the timer goes on, and the full **rollback**.
 2. Follow **[docs/TEST-PLAN.md](docs/TEST-PLAN.md)**: offline tests, install checks, a 24-hour soak and a reboot test.
 3. Every config option is in **[config/config.example.ini](config/config.example.ini)**.
 
@@ -74,6 +74,7 @@ python3 tests/demo.py                          # http://127.0.0.1:8088/ with a m
 ```
 collect.py serve.py detect.py   entry points (run with python3 -I -B)
 unlock.py                       optional: load secrets from an Ansible vault into RAM
+quillwort.sh                    optional: interactive quick installer (see INSTALL.md, TL;DR)
 homelab_dash/                   collector, checks, web server, detector
 web/                            index.html, app.js, style.css, manifest, icons
 systemd/                        collector .service + .timer, web .service
