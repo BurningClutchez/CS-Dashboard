@@ -465,87 +465,94 @@ The web server's `DynamicUser` leaves no account behind (`getent passwd | grep h
 
 ## TL;DR: quick install script
 
-`quillwort.sh` (in the repo root) runs the steps above in order with the same checks, and
-asks you for the paths and settings. It's the shortcut; the step-by-step guide stays
-the reference.
+`quillwort.sh` does steps 1.2–11 of this guide for you, in order, with the same checks. It asks for
+paths and settings as it goes; the detected value is the default each time.
 
-**Q1. Try it first in preview mode.** It asks everything and shows each command and
-file it *would* write, but changes nothing.
+### Before you run it (one at a time, as your normal user)
 
+**T1. Check Python 3.8+ and systemd 247+** (step 0.1). Only reads.
 ```bash
-cd ~/homelab-dash-src && sudo bash ./quillwort.sh --preview
+python3 --version; systemctl --version | head -1
+```
+**T2. (Optional) Install smartmontools** for drive health (step 0.2). Without it, SMART is left out. Fedora: `sudo dnf install smartmontools`.
+```bash
+sudo apt install smartmontools
+```
+**T3. Download the code** into your home folder (step 1.1). Private repo? Use the ZIP and `scp` route from step 1.1.
+```bash
+git clone https://github.com/BurningClutchez/CS-Dashboard.git ~/homelab-dash-src
+```
+**T4. Go into that folder.** The installer must run from here.
+```bash
+cd ~/homelab-dash-src
+```
+**T5. Get sudo ready**, so its password prompt doesn't interrupt the installer's questions.
+```bash
+sudo -v
 ```
 
-**Q2. Install for real.**
+### Run it
 
+**T6. Preview first.** Asks everything and shows every command and file it *would* run or write. Changes nothing.
 ```bash
-cd ~/homelab-dash-src && sudo bash ./quillwort.sh
+sudo bash ./quillwort.sh --preview
+```
+**T7. Install.** Answer the questions; press Enter to accept the default in `[brackets]`.
+```bash
+sudo bash ./quillwort.sh
+```
+**T8. Or install unattended.** No questions: answers come from flags, then the detected defaults. Add `--preview` to try it first.
+```bash
+sudo bash ./quillwort.sh --yes --subnet 192.168.1.0/24 --secrets vault --vault /path/vault.yml --vault-password-file /path/pass
 ```
 
-What it asks for, with the detected value as the default (press Enter to accept):
+### What it does
 
-| Prompt | Default | Notes |
+| Installer step | Guide step | What happens | Asks you |
+|---|---|---|---|
+| Prerequisites | 0.1, 1.1 | checks Python, systemd, and that it runs from the downloaded folder | – |
+| Offline tests | 1.2 | fake-data tests; stops if any fail (1.3 demo is skipped) | – |
+| Your choices | – | detects the server (read-only) for the defaults | install and config folders, port, subnet, Tailscale |
+| Install the code | 2 | copies the code, owned by root, read-only | – |
+| Config | 3 | drafts the config, opens your editor, re-validates until it's valid and has no secret values | keep existing config? review the draft? |
+| Secrets | 4 | only for cards that need one | 1 type them (hidden), 2 Ansible vault (RAM only), 3 skip |
+| Dry run | 5 | every check once, writes nothing, lists errors | continue on errors? (default no) |
+| Units | 6.1–6.5 | 3 units and the network drop-in, with your paths, port and subnet | – |
+| Sandboxed run | 6.6 | first real run; warns about errors that happen only inside the sandbox | – |
+| Web server | 7 | starts it; checks 200 for `/`, 405 for POST, 404 for `state.json`, not root | – |
+| Firewall | 8 | adds and verifies the LAN (and Tailscale) rule for ufw or firewalld; never *enables* a firewall | add the rules? |
+| Timer | 9 | starts it and waits for its first run | – |
+| Phone | 10 | prints how to add the page to your home screen | – |
+| Security score | 11 | `systemd-analyze security` for both units | – |
+
+If a step fails, it stops and names the step. Everything before that step stays done.
+
+### Flags
+
+| Flag | Environment variable | What it does / default |
 |---|---|---|
-| Install the code to | `/opt/homelab-dash` | not allowed under `/home`, `/root`, `/tmp`, `/run` (the sandbox hides or wipes those) |
-| Config folder | `/etc/homelab-dash` | an existing `config.ini` can be kept, or backed up and replaced |
-| Dashboard port | first free port from 8088 | checked to be free |
-| Home network allowed | your detected LAN subnet | used for the firewall rule **and** the systemd `IPAddressAllow=` drop-in |
-| Allow Tailscale | yes if Tailscale is installed | adds `tailscale0` / `100.64.0.0/10` |
-| Review the draft config | opens `$EDITOR` (nano/vi) | it re-checks the config until it's valid and has no secret values in it |
-| Secrets | 1 = type them (hidden input, root-only files, mode 600); 2 = Ansible vault, RAM only ([SECRETS-FROM-VAULT.md](SECRETS-FROM-VAULT.md)); 3 = skip | asked only for cards that need one |
-| Continue after dry-run errors | no | stops so you can fix the config first |
-| Add firewall rules | yes (ufw/firewalld) | it never *enables* a firewall for you (to avoid locking you out of SSH) |
+| `--preview` | | ask and show everything, change nothing |
+| `--yes`, `-y` | | unattended: never ask; flags first, then detected defaults |
+| `--help`, `-h` | | list all flags |
+| `--log FILE` | | default `/var/log/homelab-dash-install.log` (root-only, 600; answers and check results, never secrets). With `--preview`, only written if given |
+| `--no-log` | | don't write a log |
+| `--install-dir DIR` | `HLDASH_INSTALL_DIR` | default `/opt/homelab-dash`; not under `/home`, `/root`, `/tmp` or `/run` |
+| `--config-dir DIR` | `HLDASH_CONFIG_DIR` | default `/etc/homelab-dash` |
+| `--port N` | `HLDASH_PORT` | default: the first free port from 8088 |
+| `--subnet CIDR` | `HLDASH_SUBNET` | home network allowed to open the page; default: detected |
+| `--tailscale yes\|no` | `HLDASH_TAILSCALE` | also allow Tailscale; default: yes if installed |
+| `--keep-config yes\|no` | `HLDASH_KEEP_CONFIG` | keep an existing `config.ini`; default yes (no = back it up and write a new draft) |
+| `--secrets type\|vault\|skip` | `HLDASH_SECRETS` | with `--yes`: `vault` or `skip` only, and **required** if a card needs a secret |
+| `--vault FILE` | `HLDASH_VAULT` | your Ansible vault file |
+| `--vault-password-file FILE` | `HLDASH_VAULT_PASSWORD_FILE` | **required** with `--yes --secrets vault` |
+| `--vault-key FILE=KEY` | `HLDASH_VAULT_KEYS="pihole.pass=key …"` | vault key for each secret file; repeatable. Defaults `pihole_password`, `jellyfin_api_key`, `plex_token` |
+| `--shred-old-secrets yes\|no` | `HLDASH_SHRED_OLD` | after switching to the vault, shred old on-disk secrets. Default: asked, **no** with `--yes` |
+| `--firewall yes\|no` | `HLDASH_FIREWALL` | add the firewall rules; default yes |
+| `--continue-on-errors` | `HLDASH_CONTINUE_ON_ERRORS=yes` | carry on when the dry run shows errors; default: stop |
 
-What it runs, in order:
+Secret values are never taken from flags or variables, only from a hidden prompt or your vault.
 
-1. Preflight checks.
-2. Offline tests.
-3. Detection.
-4. Copy the code (root-owned).
-5. Draft the config, open it for review, validate it.
-6. Secrets.
-7. Dry run.
-8. Install the units and drop-ins.
-9. First sandboxed run, comparing its errors with the dry run.
-10. Start the web server and check it (200 for the page, 405 for POST, 404 for `state.json`, not running as root).
-11. Firewall.
-12. Timer.
-13. `systemd-analyze security` score.
+### After it finishes
 
-If anything fails, it stops and tells you which step. Everything before that step stays done.
-
-**Log file.** Every real run appends what it printed, your typed answers and the result of
-every check to `/var/log/homelab-dash-install.log` (root-only, mode 600, no colour codes).
-Secret values are never in it, because they are only read at a hidden prompt or piped from
-the vault. Use `--log FILE` to put it somewhere else, or `--no-log` to skip it.
-`--preview` writes a log only if you pass `--log`.
-
-**Unattended mode (`--yes`).** No questions are asked. Each answer comes from an option,
-then from an environment variable, then from the detected default. Run `--help` for the full list.
-
-```bash
-cd ~/homelab-dash-src && sudo bash ./quillwort.sh --yes --port 8088 --subnet 192.168.1.0/24 --tailscale yes --secrets vault --vault /path/vault.yml --vault-password-file /path/vault-pass --vault-key pihole.pass=pihole_password
-```
-
-| Option | Environment variable | Default with `--yes` |
-|---|---|---|
-| `--install-dir DIR` | `HLDASH_INSTALL_DIR` | `/opt/homelab-dash` |
-| `--config-dir DIR` | `HLDASH_CONFIG_DIR` | `/etc/homelab-dash` |
-| `--port N` | `HLDASH_PORT` | first free port from 8088 |
-| `--subnet CIDR` | `HLDASH_SUBNET` | detected LAN |
-| `--tailscale yes\|no` | `HLDASH_TAILSCALE` | yes if Tailscale is installed |
-| `--keep-config yes\|no` | `HLDASH_KEEP_CONFIG` | yes |
-| `--secrets vault\|skip` | `HLDASH_SECRETS` | **required** if a card needs a secret |
-| `--vault FILE`, `--vault-password-file FILE` | `HLDASH_VAULT`, `HLDASH_VAULT_PASSWORD_FILE` | both required with `--secrets vault` |
-| `--vault-key FILE=KEY` (repeatable) | `HLDASH_VAULT_KEYS="pihole.pass=key …"` | `pihole_password`, `jellyfin_api_key`, `plex_token` |
-| `--shred-old-secrets yes\|no` | `HLDASH_SHRED_OLD` | **no** (it won't delete files unattended unless you say so) |
-| `--firewall yes\|no` | `HLDASH_FIREWALL` | yes (adds the two allow rules, never enables a firewall) |
-| `--continue-on-errors` | `HLDASH_CONTINUE_ON_ERRORS=yes` | off: it stops if the dry run shows errors |
-
-Safety rules in unattended mode:
-* Secret values can't be passed as options or variables. Use the vault or `--secrets skip`. `--secrets type` is refused, since nobody is there to type.
-* The config draft isn't opened in an editor. It must validate as detected, or the run stops.
-* The same options work with `--preview --yes`, so you can check an unattended run before doing it.
-
-✅ Check: it ends with `== Done` and prints the URL(s). Then follow [TEST-PLAN.md](TEST-PLAN.md).
-To undo it, use [Rollback](#rollback-remove-everything) above. The script installs exactly the same files the manual steps do.
+It ends with `== Done` and the page's address. Then follow [TEST-PLAN.md](TEST-PLAN.md).
+To undo it, use [Rollback](#rollback-remove-everything) above: the installer puts files in exactly the same places as the manual steps.
