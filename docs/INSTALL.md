@@ -460,3 +460,59 @@ sudo apt remove smartmontools
 ✅ Final check: `sudo ss -tlnp | grep ':8088 '` prints **nothing**, and `systemctl list-timers --all | grep homelab` prints **nothing**.
 
 The web server's `DynamicUser` leaves no account behind (`getent passwd | grep homelab` prints nothing).
+
+---
+
+## TL;DR: quick install script
+
+`quillwort.sh` (in the repo root) runs the steps above in order with the same checks, and
+asks you for the paths and settings. It's the shortcut; the step-by-step guide stays
+the reference.
+
+**Q1. Try it first in preview mode.** It asks everything and shows each command and
+file it *would* write, but changes nothing.
+
+```bash
+cd ~/homelab-dash-src && sudo bash ./quillwort.sh --preview
+```
+
+**Q2. Install for real.**
+
+```bash
+cd ~/homelab-dash-src && sudo bash ./quillwort.sh
+```
+
+What it asks for, with the detected value as the default (press Enter to accept):
+
+| Prompt | Default | Notes |
+|---|---|---|
+| Install the code to | `/opt/homelab-dash` | not allowed under `/home`, `/root`, `/tmp`, `/run` (the sandbox hides or wipes those) |
+| Config folder | `/etc/homelab-dash` | an existing `config.ini` can be kept, or backed up and replaced |
+| Dashboard port | first free port from 8088 | checked to be free |
+| Home network allowed | your detected LAN subnet | used for the firewall rule **and** the systemd `IPAddressAllow=` drop-in |
+| Allow Tailscale | yes if Tailscale is installed | adds `tailscale0` / `100.64.0.0/10` |
+| Review the draft config | opens `$EDITOR` (nano/vi) | it re-checks the config until it's valid and has no secret values in it |
+| Secrets | 1 = type them (hidden input, root-only files, mode 600); 2 = Ansible vault, RAM only ([SECRETS-FROM-VAULT.md](SECRETS-FROM-VAULT.md)); 3 = skip | asked only for cards that need one |
+| Continue after dry-run errors | no | stops so you can fix the config first |
+| Add firewall rules | yes (ufw/firewalld) | it never *enables* a firewall for you (to avoid locking you out of SSH) |
+
+What it runs, in order:
+
+1. Preflight checks.
+2. Offline tests.
+3. Detection.
+4. Copy the code (root-owned).
+5. Draft the config, open it for review, validate it.
+6. Secrets.
+7. Dry run.
+8. Install the units and drop-ins.
+9. First sandboxed run, comparing its errors with the dry run.
+10. Start the web server and check it (200 for the page, 405 for POST, 404 for `state.json`, not running as root).
+11. Firewall.
+12. Timer.
+13. `systemd-analyze security` score.
+
+If anything fails, it stops and tells you which step. Everything before that step stays done.
+
+✅ Check: it ends with `== Done` and prints the URL(s). Then follow [TEST-PLAN.md](TEST-PLAN.md).
+To undo it, use [Rollback](#rollback-remove-everything) above. The script installs exactly the same files the manual steps do.
