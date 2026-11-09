@@ -1,2 +1,37 @@
+# ---- Python
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+.coverage
+htmlcov/
+
+# ---- Never commit a real config, secrets or collected data.
+# Only config/config.example.ini belongs in the repo.
+config.ini
+*.ini.draft
+!config/config.example.ini
+secrets/
+*.pass
+*.key
+*.token
+.env
+# collector output (normally in /var/lib/homelab-dash, but just in case)
+/status.json
+/history.json
+/state.json
+/data/
+
+# ---- Local scratch
+*.log
+*.tmp
+.tmp-*
+/screenshots/
+
+# ---- Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
