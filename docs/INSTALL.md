@@ -514,5 +514,38 @@ What it runs, in order:
 
 If anything fails, it stops and tells you which step. Everything before that step stays done.
 
+**Log file.** Every real run appends what it printed, your typed answers and the result of
+every check to `/var/log/homelab-dash-install.log` (root-only, mode 600, no colour codes).
+Secret values are never in it, because they are only read at a hidden prompt or piped from
+the vault. Use `--log FILE` to put it somewhere else, or `--no-log` to skip it.
+`--preview` writes a log only if you pass `--log`.
+
+**Unattended mode (`--yes`).** No questions are asked. Each answer comes from an option,
+then from an environment variable, then from the detected default. Run `--help` for the full list.
+
+```bash
+cd ~/homelab-dash-src && sudo bash ./quillwort.sh --yes --port 8088 --subnet 192.168.1.0/24 --tailscale yes --secrets vault --vault /path/vault.yml --vault-password-file /path/vault-pass --vault-key pihole.pass=pihole_password
+```
+
+| Option | Environment variable | Default with `--yes` |
+|---|---|---|
+| `--install-dir DIR` | `HLDASH_INSTALL_DIR` | `/opt/homelab-dash` |
+| `--config-dir DIR` | `HLDASH_CONFIG_DIR` | `/etc/homelab-dash` |
+| `--port N` | `HLDASH_PORT` | first free port from 8088 |
+| `--subnet CIDR` | `HLDASH_SUBNET` | detected LAN |
+| `--tailscale yes\|no` | `HLDASH_TAILSCALE` | yes if Tailscale is installed |
+| `--keep-config yes\|no` | `HLDASH_KEEP_CONFIG` | yes |
+| `--secrets vault\|skip` | `HLDASH_SECRETS` | **required** if a card needs a secret |
+| `--vault FILE`, `--vault-password-file FILE` | `HLDASH_VAULT`, `HLDASH_VAULT_PASSWORD_FILE` | both required with `--secrets vault` |
+| `--vault-key FILE=KEY` (repeatable) | `HLDASH_VAULT_KEYS="pihole.pass=key …"` | `pihole_password`, `jellyfin_api_key`, `plex_token` |
+| `--shred-old-secrets yes\|no` | `HLDASH_SHRED_OLD` | **no** (it won't delete files unattended unless you say so) |
+| `--firewall yes\|no` | `HLDASH_FIREWALL` | yes (adds the two allow rules, never enables a firewall) |
+| `--continue-on-errors` | `HLDASH_CONTINUE_ON_ERRORS=yes` | off: it stops if the dry run shows errors |
+
+Safety rules in unattended mode:
+* Secret values can't be passed as options or variables. Use the vault or `--secrets skip`. `--secrets type` is refused, since nobody is there to type.
+* The config draft isn't opened in an editor. It must validate as detected, or the run stops.
+* The same options work with `--preview --yes`, so you can check an unattended run before doing it.
+
 ✅ Check: it ends with `== Done` and prints the URL(s). Then follow [TEST-PLAN.md](TEST-PLAN.md).
 To undo it, use [Rollback](#rollback-remove-everything) above. The script installs exactly the same files the manual steps do.

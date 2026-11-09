@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# quillwort.sh: interactive quick installer for homelab-dash.
+# quillwort.sh: quick installer for homelab-dash (interactive or unattended).
 #
-#   sudo bash ./quillwort.sh            # install, asking for paths and settings
-#   sudo bash ./quillwort.sh --preview  # walk through everything, change NOTHING
+#   sudo bash ./quillwort.sh                 # install, asking for paths and settings
+#   sudo bash ./quillwort.sh --preview       # walk through everything, change NOTHING
+#   sudo bash ./quillwort.sh --yes [flags]   # unattended: never prompts (see --help)
 #
 # It does the same steps as docs/INSTALL.md, in the same order, with the same
 # checks: offline tests, detection, config review, secrets, dry run, units,
@@ -12,19 +13,129 @@
 set -Eeuo pipefail
 umask 022
 
+usage() {
+  cat <<'EOF'
+Usage: sudo bash ./quillwort.sh [--preview] [--yes] [options]
+
+  --preview                 ask everything / show every command, change nothing
+  --yes, -y                 unattended: never prompt; use the options below,
+                            then the detected defaults
+  --log FILE                log file (default /var/log/homelab-dash-install.log;
+                            in --preview only written if --log is given)
+  --no-log                  do not write a log file
+
+Answers (each also readable from the environment variable shown):
+  --install-dir DIR         HLDASH_INSTALL_DIR     default /opt/homelab-dash
+  --config-dir DIR          HLDASH_CONFIG_DIR      default /etc/homelab-dash
+  --port N                  HLDASH_PORT            default: first free from 8088
+  --subnet CIDR             HLDASH_SUBNET          default: detected LAN
+  --tailscale yes|no        HLDASH_TAILSCALE       default: yes if installed
+  --keep-config yes|no      HLDASH_KEEP_CONFIG     default yes (if one exists)
+  --secrets vault|skip|type HLDASH_SECRETS         unattended: vault or skip only
+  --vault FILE              HLDASH_VAULT           Ansible vault file
+  --vault-password-file F   HLDASH_VAULT_PASSWORD_FILE  required with --yes
+  --vault-key FILE=KEY      HLDASH_VAULT_KEYS="pihole.pass=key ..."  (repeatable)
+  --shred-old-secrets yes|no HLDASH_SHRED_OLD      default: yes asked / no with --yes
+  --firewall yes|no         HLDASH_FIREWALL        add ufw/firewalld rules, default yes
+  --continue-on-errors      HLDASH_CONTINUE_ON_ERRORS=yes  carry on after dry-run errors
+
+Secret values are never accepted as options or variables: they come from a
+hidden prompt (interactive) or from your Ansible vault.
+EOF
+}
+
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREVIEW=0
-[[ ${1:-} == "--preview" ]] && PREVIEW=1
-[[ ${1:-} == "-h" || ${1:-} == "--help" ]] && { sed -n '2,11p' "$0"; exit 0; }
+YES=0
+LOG="/var/log/homelab-dash-install.log"
+LOG_SET=0
+NO_LOG=0
+A_INSTALL="${HLDASH_INSTALL_DIR:-}"
+A_CONF="${HLDASH_CONFIG_DIR:-}"
+A_PORT="${HLDASH_PORT:-}"
+A_SUBNET="${HLDASH_SUBNET:-}"
+A_TS="${HLDASH_TAILSCALE:-}"
+A_KEEP="${HLDASH_KEEP_CONFIG:-}"
+A_SECRETS="${HLDASH_SECRETS:-}"
+A_VAULT="${HLDASH_VAULT:-}"
+A_VPASS="${HLDASH_VAULT_PASSWORD_FILE:-}"
+A_VKEYS="${HLDASH_VAULT_KEYS:-}"
+A_SHRED="${HLDASH_SHRED_OLD:-}"
+A_FW="${HLDASH_FIREWALL:-}"
+A_CONT="${HLDASH_CONTINUE_ON_ERRORS:-}"
+need() { [[ $# -ge 2 && -n $2 ]] || { echo "option $1 needs a value (see --help)" >&2; exit 2; }; }
+while (($#)); do
+  case "$1" in
+    --preview) PREVIEW=1;;
+    --yes|-y) YES=1;;
+    --log) need "$@"; LOG="$2"; LOG_SET=1; shift;;
+    --no-log) NO_LOG=1;;
+    --install-dir) need "$@"; A_INSTALL="$2"; shift;;
+    --config-dir) need "$@"; A_CONF="$2"; shift;;
+    --port) need "$@"; A_PORT="$2"; shift;;
+    --subnet) need "$@"; A_SUBNET="$2"; shift;;
+    --tailscale) need "$@"; A_TS="$2"; shift;;
+    --keep-config) need "$@"; A_KEEP="$2"; shift;;
+    --secrets) need "$@"; A_SECRETS="$2"; shift;;
+    --vault) need "$@"; A_VAULT="$2"; shift;;
+    --vault-password-file) need "$@"; A_VPASS="$2"; shift;;
+    --vault-key) need "$@"; A_VKEYS+=" $2"; shift;;
+    --shred-old-secrets) need "$@"; A_SHRED="$2"; shift;;
+    --firewall) need "$@"; A_FW="$2"; shift;;
+    --continue-on-errors) A_CONT=yes;;
+    -h|--help) usage; exit 0;;
+    *) echo "unknown option: $1 (see --help)" >&2; exit 2;;
+  esac
+  shift
+done
+yn() {  # normalise yes/no answers given as options: yn VALUE -> y|n|""
+  case "${1,,}" in y|yes|1|true|on) echo y;; n|no|0|false|off) echo n;; "") echo "";;
+    *) echo "bad yes/no value: $1" >&2; exit 2;; esac
+}
+A_TS="$(yn "$A_TS")"; A_KEEP="$(yn "$A_KEEP")"; A_SHRED="$(yn "$A_SHRED")"
+A_FW="$(yn "$A_FW")"; A_CONT="$(yn "$A_CONT")"
+case "$A_SECRETS" in ""|vault|skip|type) ;; *) echo "--secrets must be vault, skip or type" >&2; exit 2;; esac
+if ((YES)) && [[ $A_SECRETS == type ]]; then
+  echo "--secrets type needs a person at the keyboard; with --yes use vault or skip" >&2; exit 2
+fi
+if ((YES)) && [[ $A_SECRETS == vault && -z $A_VPASS ]]; then
+  echo "--yes with --secrets vault needs --vault-password-file (nobody is there to type it)" >&2; exit 2
+fi
+
 PY=/usr/bin/python3
 STEP="start"
 RUN_AS="${SUDO_USER:-root}"
 RAM_DIR=/run/homelab-dash-secrets
 DATA_DIR=/var/lib/homelab-dash   # fixed: comes from StateDirectory= in the unit
 
-# ------------------------------------------------------------------ helpers
+# --------------------------------------------------------------------- log
+# Everything printed (never a secret value: those are only read with read -s
+# or piped from the vault) is also appended to the log, without colours.
 bold=$'\033[1m'; green=$'\033[32m'; yellow=$'\033[33m'; red=$'\033[31m'; off=$'\033[0m'
 [[ -t 1 ]] || { bold=; green=; yellow=; red=; off=; }
+TEE_PID=""
+if ((NO_LOG == 0)) && { ((PREVIEW == 0)) || ((LOG_SET)); }; then
+  if ((PREVIEW == 0)) && [[ $EUID -ne 0 ]]; then echo "run with sudo:  sudo bash $0" >&2; exit 1; fi
+  install -d -m 755 "$(dirname "$LOG")"
+  ( umask 077; touch "$LOG" ); chmod 600 "$LOG"
+  exec 3>&1 4>&2
+  printf '\n######## %s  homelab-dash install  user=%s  preview=%s  unattended=%s\n' \
+    "$(date -Is)" "$RUN_AS" "$PREVIEW" "$YES" >>"$LOG"
+  exec > >(tee -a "$LOG") 2>&1
+  TEE_PID=$!
+fi
+finish() {
+  if [[ -n $TEE_PID ]]; then
+    exec 1>&3 2>&4
+    wait "$TEE_PID" 2>/dev/null || true
+    sed -i 's/\x1b\[[0-9;]*m//g' "$LOG" 2>/dev/null || true   # keep the log free of colour codes
+  fi
+  [[ -n ${WORK:-} ]] && rm -rf "$WORK"
+  return 0
+}
+trap finish EXIT
+
+# ------------------------------------------------------------------ helpers
 step() { STEP="$*"; printf '\n%s== %s%s\n' "$bold" "$*" "$off"; }
 ok()   { printf '  %s✓%s %s\n' "$green" "$off" "$*"; }
 warn() { printf '  %s!%s %s\n' "$yellow" "$off" "$*"; }
@@ -40,9 +151,12 @@ put() {
   if ((PREVIEW)); then printf '  [preview] would write %s (mode %s):\n' "$1" "$2"; sed 's/^/      | /'; else
     install -o root -g root -m "$2" /dev/stdin "$1"; fi
 }
-ask() {  # ask "Question" "default" -> answer on stdout (prompt goes to the terminal)
+ask() {  # ask "Question" "default" -> answer on stdout. Unattended: the default, shown in the log.
   local ans
+  if ((YES)); then printf '  %s: %s (unattended)\n' "$1" "${2:-}" >&2; printf '%s' "${2:-}"; return; fi
   read -r -p "  $1${2:+ [$2]}: " ans </dev/tty
+  # the prompt itself reaches the log through tee; add the typed answer after it
+  if [[ -n $ans ]]; then printf '%s\n' "$ans"; else printf '(default) %s\n' "${2:-}"; fi >>"${ANSWER_LOG:-/dev/null}"
   printf '%s' "${ans:-${2:-}}"
 }
 yes_no() {  # yes_no "Question" y|n
@@ -56,6 +170,9 @@ safe_dir() {  # reject locations the sandboxes hide or wipe
     /home*|/root*|/tmp*|/var/tmp*|/run*|/proc*|/sys*|/dev*) die "$1: not allowed (hidden by the sandbox or wiped at boot)";;
   esac
 }
+# typed answers are echoed by the terminal, not printed, so record them in the log too
+ANSWER_LOG=""; [[ -n $TEE_PID ]] && ANSWER_LOG="$LOG"
+((YES)) && warn "UNATTENDED mode: no questions; options, then detected defaults are used"
 
 # --------------------------------------------------------------- preflight
 step "Preflight"
@@ -109,28 +226,28 @@ ok "host $D_HOST, address ${D_IP:-?}, LAN ${D_SUBNET:-?}, firewall $D_FW, Tailsc
 [[ $D_SMART == 1 ]] || warn "smartctl not installed: no drive health (install smartmontools and re-run to add it)"
 
 step "Your choices"
-INSTALL_DIR="$(ask "Install the code to" /opt/homelab-dash)";   safe_dir "$INSTALL_DIR"
-CONF_DIR="$(ask "Config folder" /etc/homelab-dash)";             safe_dir "$CONF_DIR"
+INSTALL_DIR="$(ask "Install the code to" "${A_INSTALL:-/opt/homelab-dash}")";   safe_dir "$INSTALL_DIR"
+CONF_DIR="$(ask "Config folder" "${A_CONF:-/etc/homelab-dash}")";             safe_dir "$CONF_DIR"
 printf '  Data folder is fixed: %s\n' "$DATA_DIR"
-PORT="$(ask "Dashboard port" "$D_PORT")"
+PORT="$(ask "Dashboard port" "${A_PORT:-$D_PORT}")"
 [[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1024 && PORT <= 65535)) || die "port must be 1024-65535"
 if ! $PY -c 'import socket,sys; s=socket.socket(); s.bind(("0.0.0.0", int(sys.argv[1])))' "$PORT" 2>/dev/null; then
   [[ -f $CONF_DIR/config.ini ]] && grep -qE "^port *= *$PORT" "$CONF_DIR/config.ini" \
     && warn "port $PORT is in use (by an earlier install, it seems)" \
     || die "port $PORT is already in use; pick another"
 fi
-SUBNET="$(ask "Home network allowed to open the page" "$D_SUBNET")"
+SUBNET="$(ask "Home network allowed to open the page" "${A_SUBNET:-$D_SUBNET}")"
 $PY -c 'import ipaddress,sys; ipaddress.ip_network(sys.argv[1], strict=False)' "$SUBNET" 2>/dev/null \
   || die "'$SUBNET' is not a network like 192.168.1.0/24"
 SUBNET="$($PY -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1], strict=False))' "$SUBNET")"
-if yes_no "Also allow access over Tailscale" "$D_TS"; then TS=1; else TS=0; fi
+if yes_no "Also allow access over Tailscale" "${A_TS:-$D_TS}"; then TS=1; else TS=0; fi
 
 echo
 printf '  %-22s %s\n' "Code:" "$INSTALL_DIR" "Config:" "$CONF_DIR" "Data:" "$DATA_DIR" \
   "Port:" "$PORT" "Allowed:" "$SUBNET$([[ $TS == 1 ]] && echo ' + Tailscale')"
 yes_no "Continue with these settings" y || die "cancelled; nothing was changed"
 
-WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+WORK="$(mktemp -d)"   # removed by finish() on exit
 CFG_LIVE="$CONF_DIR/config.ini"
 CFG="$CFG_LIVE"; ((PREVIEW)) && CFG="$WORK/config.ini"
 CODE="$INSTALL_DIR"; ((PREVIEW)) && CODE="$SRC"   # preview runs the code from the repo
@@ -155,7 +272,7 @@ step "Config"
 run install -d -o root -g root -m 755 "$CONF_DIR"
 NEW_CONFIG=1
 if [[ -f $CFG_LIVE ]]; then
-  if yes_no "Keep the existing $CFG_LIVE" y; then
+  if yes_no "Keep the existing $CFG_LIVE" "${A_KEEP:-y}"; then
     NEW_CONFIG=0; ((PREVIEW)) && cp "$CFG_LIVE" "$CFG"
   else
     run cp -p "$CFG_LIVE" "$CFG_LIVE.bak.$(date +%Y%m%d-%H%M%S)"
@@ -170,13 +287,16 @@ if ((NEW_CONFIG)); then
   ok "draft written from what was detected"
   ED="${EDITOR:-$(command -v nano || command -v vi || echo vi)}"
   while :; do
-    if yes_no "Open the draft in $ED to review it (recommended)" y; then
+    if ((YES)); then :   # unattended: no editor; the draft must validate as written
+    elif yes_no "Open the draft in $ED to review it (recommended)" y; then
       $ED "$DRAFT" </dev/tty >/dev/tty
     fi
     if grep -E '^[^#]*(password|token|api_?key) *=' "$DRAFT" | grep -vE '_file *=|^ *map *=' >/dev/null; then
+      ((YES)) && die "the config must not contain secret values, only *_file paths"
       warn "the config must not contain secret values, only *_file paths"; continue
     fi
     if $PY -I -B "$SRC/collect.py" --config "$DRAFT" --check-config; then break; fi
+    ((YES)) && die "config draft is not valid (see above); run interactively to fix it"
     yes_no "Fix it in the editor" y || die "config not valid; nothing installed beyond the code"
   done
   if ((PREVIEW)); then cp "$DRAFT" "$CFG"; ok "(preview) config kept in a temp folder"
@@ -205,7 +325,10 @@ else
   echo "    1) type them now (stored in root-only files, mode 600)"
   echo "    2) from an Ansible vault, kept in RAM only (unlock again after each reboot)"
   echo "    3) skip for now (those cards show an error until you add them)"
-  MODE="$(ask "Choice" 1)"
+  case "$A_SECRETS" in type) DEF=1;; vault) DEF=2;; skip) DEF=3;; *) DEF=1;; esac
+  ((YES)) && [[ -z $A_SECRETS ]] && die "these cards need secrets: pass --secrets vault (with --vault and --vault-password-file) or --secrets skip"
+  MODE="$(ask "Choice" "$DEF")"
+  echo "  secrets mode: $MODE"
   case "$MODE" in
   1)
     SDIR="$CONF_DIR/secrets"
@@ -226,9 +349,10 @@ else
     AV="$(sudo -u "$RUN_AS" bash -lc 'command -v ansible-vault' </dev/null 2>/dev/null || command -v ansible-vault || true)"
     [[ -n $AV ]] || die "ansible-vault not found for user $RUN_AS (install ansible-core, or use option 1)"
     ok "using $AV"
-    VAULT="$(ask "Path to your vault file" "")"
+    VAULT="$(ask "Path to your vault file" "$A_VAULT")"
+    [[ -n $VAULT ]] || die "no vault file given"
     sudo -u "$RUN_AS" test -r "$VAULT" </dev/null || die "$VAULT is not readable by $RUN_AS"
-    VPASS="$(ask "Vault password file (leave empty to be asked)" "")"
+    VPASS="$(ask "Vault password file (leave empty to be asked)" "$A_VPASS")"
     [[ -z $VPASS ]] || sudo -u "$RUN_AS" test -r "$VPASS" </dev/null || die "$VPASS is not readable by $RUN_AS"
     MAP=""
     for line in "${SECRETS[@]}"; do
@@ -237,6 +361,7 @@ else
         pihole.pass) def=pihole_password;; jellyfin.key) def=jellyfin_api_key;;
         emby.key) def=emby_api_key;; plex.token) def=plex_token;; *) def="${base//./_}";;
       esac
+      for kv in $A_VKEYS; do [[ ${kv%%=*} == "$base" ]] && def="${kv#*=}"; done
       key="$(ask "Vault key name for $base" "$def")"
       [[ $key =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] || die "bad key name: $key"
       MAP+="$key=$base "
@@ -254,7 +379,8 @@ else
     else
       sudo -u "$RUN_AS" bash -lc "$(printf '%q ' "${VIEW[@]}")" | $PY -I -B "$INSTALL_DIR/unlock.py" --config "$CFG_LIVE"
     fi
-    if [[ -d $CONF_DIR/secrets ]] && yes_no "Shred the old on-disk secrets in $CONF_DIR/secrets" y; then
+    SHRED_DEF="${A_SHRED:-$( ((YES)) && echo n || echo y)}"
+    if [[ -d $CONF_DIR/secrets ]] && yes_no "Shred the old on-disk secrets in $CONF_DIR/secrets" "$SHRED_DEF"; then
       run find "$CONF_DIR/secrets" -type f -exec shred -u {} +
       run rmdir "$CONF_DIR/secrets"
     fi
@@ -270,7 +396,7 @@ $PY -I -B "$CODE/collect.py" --config "$CFG" --dry-run 2>"$DRY_ERR" >/dev/null |
 grep '^#' "$DRY_ERR" | sed 's/^/  /'
 sed -n 's/^#   \[[^]]*\] //p' "$DRY_ERR" | sort >"$WORK/dry-errors.txt"
 if [[ -s $WORK/dry-errors.txt ]]; then
-  yes_no "Some checks have errors (listed above). Continue anyway" n || die "fix the config ($CFG_LIVE) and run this again"
+  yes_no "Some checks have errors (listed above). Continue anyway" "${A_CONT:-n}" || die "fix the config ($CFG_LIVE) and run this again"
 else
   ok "every check worked"
 fi
@@ -359,7 +485,7 @@ if [[ $D_FW != ufw && $D_FW != firewalld ]]; then
 else
   echo "  Rules to add ($D_FW):"
   fw_rules show
-  if yes_no "Add them now" y; then fw_rules apply; ok "firewall rules added"
+  if yes_no "Add them now" "${A_FW:-y}"; then fw_rules apply; ok "firewall rules added"
   else warn "skipped: add them later (INSTALL.md step 8)"; fi
 fi
 
@@ -382,6 +508,7 @@ step "Done"
 ((PREVIEW)) && warn "that was a PREVIEW: nothing was installed. Run without --preview to install."
 [[ -n $D_IP ]] && echo "  On your home network:   http://$D_IP:$PORT/"
 ((TS)) && [[ -n $D_TSNAME ]] && echo "  Over Tailscale:         http://$D_TSNAME:$PORT/"
+[[ -n $TEE_PID ]] && echo "  Log of this run: $LOG"
 echo "  Next: docs/TEST-PLAN.md (24-hour soak and reboot test)."
 echo "  Undo everything: docs/INSTALL.md, section \"Rollback\"."
 [[ ${MODE:-} == 2 ]] && echo "  After each reboot: ansible-vault view $VAULT | sudo $PY -I -B $INSTALL_DIR/unlock.py --config $CFG_LIVE"
