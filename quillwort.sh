@@ -283,7 +283,7 @@ for u in homelab-dash-collector.service homelab-dash-collector.timer homelab-das
 done
 ALLOW="$SUBNET"; ((TS)) && ALLOW+=" 100.64.0.0/10 fd7a:115c:a1e0::/48"
 run install -d -o root -g root -m 755 /etc/systemd/system/homelab-dash-web.service.d
-printf '# Written by quillwort.sh: networks allowed to reach the dashboard.\n[Service]\nIPAddressAllow=%s\n' "$ALLOW" \
+printf '# Written by the homelab-dash installer: networks allowed to reach the dashboard.\n[Service]\nIPAddressAllow=%s\n' "$ALLOW" \
   | put /etc/systemd/system/homelab-dash-web.service.d/10-network.conf 644
 if [[ $D_HOME == 1 || $D_SMART == 0 ]]; then
   run install -d -o root -g root -m 755 /etc/systemd/system/homelab-dash-collector.service.d
