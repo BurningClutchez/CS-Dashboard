@@ -1,0 +1,2 @@
+{"BackendState":"Running","Self":{"HostName":"homeserver","DNSName":"homeserver.tailnet-1234.ts.net.","TailscaleIPs":["100.101.102.103","fd7a:115c:a1e0::1"],"Online":true},
+ "Peer":{"a":{"HostName":"phone","Online":true},"b":{"HostName":"laptop","Online":false},"c":{"HostName":"nas","Online":true}},"Health":[]}

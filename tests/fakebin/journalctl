@@ -1,0 +1,2 @@
+#!/usr/bin/env python3
+print("kernel: ata3: COMRESET failed\nsmbd[123]: error 1\nsshd[99]: error: kex_exchange_identification")

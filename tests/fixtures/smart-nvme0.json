@@ -1,0 +1,4 @@
+{"smartctl":{"exit_status":0},"device":{"name":"/dev/nvme0","protocol":"NVMe"},"model_name":"Samsung SSD 980 1TB",
+ "user_capacity":{"bytes":1000204886016},"smart_support":{"available":true,"enabled":true},"smart_status":{"passed":true},
+ "temperature":{"current":42},"power_on_time":{"hours":8123},
+ "nvme_smart_health_information_log":{"critical_warning":0,"temperature":42,"available_spare":100,"percentage_used":3,"media_errors":0,"power_on_hours":8123}}

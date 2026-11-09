@@ -1,0 +1,70 @@
+[Unit]
+Description=homelab-dash collector (read-only system checks)
+Documentation=file:///opt/homelab-dash/docs/INSTALL.md
+After=network-online.target
+# The timer starts this; it is never started at boot on its own.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I -B /opt/homelab-dash/collect.py --config /etc/homelab-dash/config.ini
+# A hung check gets the whole run killed. The collector's own deadline is 30 s.
+TimeoutStartSec=50s
+
+# ---- identity: root is needed for SMART, the Docker socket and the journal,
+#      but almost every root power is taken away below.
+User=root
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN
+AmbientCapabilities=
+NoNewPrivileges=yes
+
+# ---- low priority: never compete with real work
+Nice=15
+CPUSchedulingPolicy=batch
+IOSchedulingClass=idle
+CPUWeight=20
+IOWeight=20
+MemoryMax=256M
+TasksMax=64
+LimitNOFILE=1024
+
+# ---- filesystem: everything read-only except its own data folder
+ProtectSystem=strict
+StateDirectory=homelab-dash
+StateDirectoryMode=0755
+# status.json and history.json are chmod 0644 explicitly; everything else stays private
+UMask=0077
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+InaccessiblePaths=-/etc/shadow -/etc/gshadow -/root -/etc/ssh
+
+# ---- devices: only read access to disks (for SMART) and ZFS control
+DevicePolicy=closed
+DeviceAllow=block-sd r
+DeviceAllow=block-blkext r
+DeviceAllow=char-nvme r
+DeviceAllow=char-zfs rw
+
+# ---- network: local and private networks only, no Internet
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+IPAddressDeny=any
+IPAddressAllow=localhost link-local 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
+# DNS check: allow the resolver too (systemd-resolved listens on 127.0.0.53, covered by localhost)
+
+# ---- kernel attack surface
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+KeyringMode=private
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @swap @reboot @raw-io:EPERM
+SystemCallErrorNumber=EPERM

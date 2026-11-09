@@ -1,0 +1,3 @@
+[{"ifname":"lo","addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8,"scope":"host"}]},
+ {"ifname":"enp3s0","addr_info":[{"family":"inet","local":"192.168.1.10","prefixlen":24,"scope":"global"},{"family":"inet6","local":"fe80::1","prefixlen":64,"scope":"link"}]},
+ {"ifname":"tailscale0","addr_info":[{"family":"inet","local":"100.101.102.103","prefixlen":32,"scope":"global"}]}]
