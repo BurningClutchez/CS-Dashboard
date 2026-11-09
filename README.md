@@ -44,6 +44,7 @@ no pip, no Docker, no Node and no build step.
 | Network | interfaces, addresses, live throughput, gateway, DNS lookup, Tailscale state and peers |
 | Pi-hole | queries, % blocked, clients, blocklist size, blocking on/off (v5 and v6; re-uses one session) |
 | Jellyfin / Emby / Plex | playing / paused / transcoding counts (titles and users only if you opt in) |
+| LAN addresses | free IPs left on each Docker macvlan/ipvlan network (allocation pool minus containers, static IPs of stopped containers, gateway, reserved addresses and LAN devices this server has seen), with a warning when no `ip_range` is set; the `*.home.arpa` domains in use (Pi-hole local DNS, `/etc/hosts`, config) as clickable links |
 | Game servers | online/offline and player counts via Steam query (A2S) or Minecraft ping, plus an optional process check |
 
 ## Start here

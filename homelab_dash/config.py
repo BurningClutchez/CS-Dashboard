@@ -52,6 +52,19 @@ DEFAULTS = {
         "dns_test": "example.com",
         "tailscale": "auto",
     },
+    "addresses": {
+        "enabled": "auto",
+        "warn_free": "5",
+    },
+    "domains": {
+        "enabled": "auto",
+        "suffix": "home.arpa",
+        "scheme": "http",
+        "hosts_file": "",
+        "extra": "",
+        "links": "",
+        "hide": "",
+    },
     "docker": {
         "enabled": "auto",
         "socket": "/run/docker.sock",

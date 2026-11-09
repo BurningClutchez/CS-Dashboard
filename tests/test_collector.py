@@ -77,7 +77,7 @@ class TestFullRun(FakeServerTest):
         self.assertEqual(
             [c["id"] for c in self.status["cards"]],
             ["system", "disks", "services", "docker", "network", "pihole",
-             "media-jellyfin", "media-plex", "games"])
+             "media-jellyfin", "media-plex", "games", "addresses"])
 
     def test_json_is_serialisable_and_has_header(self):
         text = json.dumps(self.status, allow_nan=False)
@@ -92,7 +92,7 @@ class TestFullRun(FakeServerTest):
         errs = {c["id"]: [e["check"] for e in c["errors"]] for c in self.status["cards"]}
         self.assertEqual(errs["disks"], ["SMART /dev/sdd"])
         self.assertEqual(errs["services"], ["App that hangs"])
-        for cid in ("system", "network", "pihole", "media-jellyfin", "media-plex", "docker"):
+        for cid in ("system", "network", "pihole", "media-jellyfin", "media-plex", "docker", "addresses"):
             self.assertEqual(errs[cid], [], cid)
 
     def test_secrets_never_in_output(self):
@@ -211,7 +211,7 @@ class TestDocker(FakeServerTest):
     def test_addons_and_macvlan(self):
         s = self.stacks()
         self.assertEqual(s["Home Assistant add-ons"]["containers"][0]["role"], "add-on")
-        pihole = s["dns"]["containers"][0]
+        pihole = next(c for c in s["dns"]["containers"] if c["name"] == "pihole")
         self.assertEqual(pihole["macvlan"], [{"network": "lan_macvlan", "driver": "macvlan", "ip": "192.168.1.53"}])
         self.assertEqual(self.cards["docker"]["data"]["vlan_networks"][0]["parent"], "enp3s0")
 
@@ -221,7 +221,7 @@ class TestDocker(FakeServerTest):
         self.assertEqual(st["broken-app"]["status"], "crit")
         self.assertEqual(st["watchtower"]["status"], "unknown")  # stopped on purpose: grey
         self.assertEqual(s["monitoring"]["status"], "warn")      # health: starting
-        self.assertEqual(self.cards["docker"]["data"]["running"], 8)
+        self.assertEqual(self.cards["docker"]["data"]["running"], 9)
 
     def test_crashed_vs_stopped(self):
         status, short = services.container_state("exited", "Exited (1) 1 minute ago")
@@ -323,6 +323,53 @@ class TestSecrets(unittest.TestCase):
         os.symlink(p, os.path.join(self.dir, "link"))
         with self.assertRaises(CheckError):
             read_secret(os.path.join(self.dir, "link"))
+
+
+class TestAddresses(FakeServerTest):
+    def nets(self):
+        return {n["name"]: n for n in self.cards["addresses"]["data"]["networks"]}
+
+    def test_macvlan_free_ips(self):
+        n = self.nets()["lan_macvlan"]
+        # pool 192.168.1.48/28 -> .49-.62; minus .53 (pihole), .54 (stopped, static),
+        # .62 (reserved aux address), .50 (seen on the LAN). .57 is an incomplete ARP entry: still free.
+        self.assertEqual(n["pool"], "192.168.1.48/28")
+        self.assertEqual(n["free_ranges"], ["192.168.1.49", "192.168.1.51-192.168.1.52", "192.168.1.55-192.168.1.61"])
+        self.assertEqual(n["free_count"], 10)
+        self.assertEqual(n["lan_seen"], 1)
+        self.assertEqual([(u["ip"], u["name"], u["note"]) for u in n["used"]],
+                         [("192.168.1.53", "pihole", ""), ("192.168.1.54", "adguard", "stopped, IP reserved")])
+        self.assertEqual(n["status"], "ok")
+        self.assertFalse(any("no ip_range" in x for x in n["notes"]))
+
+    def test_small_ipvlan_warns(self):
+        n = self.nets()["iot_ipvlan"]
+        self.assertEqual(n["free_ranges"], ["10.20.0.3-10.20.0.6"])  # .1 gateway, .2 zigbee2mqtt
+        self.assertEqual(n["status"], "warn")                       # fewer than warn_free (5)
+        self.assertTrue(any("no ip_range" in x for x in n["notes"]))
+        self.assertEqual(self.cards["addresses"]["status"], "warn")
+
+    def test_domains_are_links(self):
+        d = {x["name"]: x for x in self.cards["addresses"]["data"]["domains"]}
+        self.assertEqual(sorted(d), ["grafana.home.arpa", "homeserver.home.arpa", "jellyfin.home.arpa",
+                                     "nas.home.arpa", "pihole.home.arpa", "printer.home.arpa"])
+        self.assertEqual(d["nas.home.arpa"]["url"], "https://nas.home.arpa:5001/")   # [domains] links
+        self.assertEqual(d["pihole.home.arpa"]["url"], "http://pihole.home.arpa/")
+        self.assertEqual(d["jellyfin.home.arpa"]["sources"], ["CNAME"])
+        self.assertEqual(d["printer.home.arpa"]["targets"], ["192.168.1.20"])
+        self.assertNotIn("old.home.arpa", d)  # commented out in /etc/hosts
+
+    def test_compress(self):
+        from homelab_dash import addresses
+        import ipaddress
+        ips = [ipaddress.ip_address("10.0.0.%d" % i) for i in (1, 2, 3, 5, 7, 8)]
+        self.assertEqual(addresses.compress(ips), ["10.0.0.1-10.0.0.3", "10.0.0.5", "10.0.0.7-10.0.0.8"])
+
+    def test_no_card_when_nothing_to_show(self):
+        from homelab_dash import addresses
+        cfg = config.Config(None)
+        cfg.cp.read_dict({"general": {"etc": "/nonexistent"}})
+        self.assertIsNone(addresses.build(cfg, [], {}))
 
 
 class TestHistoryAndFiles(unittest.TestCase):

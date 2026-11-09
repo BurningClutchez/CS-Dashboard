@@ -212,10 +212,14 @@ def docker_overview(cfg):
     for n in networks:
         if n.get("Driver") in ("macvlan", "ipvlan"):
             cfgs = (n.get("IPAM") or {}).get("Config") or [{}]
+            v4 = next((c for c in cfgs if ":" not in (c.get("Subnet") or "")), cfgs[0] if cfgs else {})
             vlan_nets[n.get("Id")] = {
                 "name": n.get("Name"), "driver": n.get("Driver"),
                 "parent": (n.get("Options") or {}).get("parent"),
-                "subnet": cfgs[0].get("Subnet") if cfgs else None,
+                "subnet": v4.get("Subnet"),
+                "gateway": v4.get("Gateway"),
+                "ip_range": v4.get("IPRange"),
+                "aux": sorted(set((v4.get("AuxiliaryAddresses") or {}).values())),
                 "containers": [],
             }
 
@@ -248,9 +252,12 @@ def docker_overview(cfg):
         for net_name, n in ((c.get("NetworkSettings") or {}).get("Networks") or {}).items():
             vn = vlan_nets.get(n.get("NetworkID"))
             if vn:
-                ip = n.get("IPAddress") or ((n.get("IPAMConfig") or {}).get("IPv4Address"))
+                static = (n.get("IPAMConfig") or {}).get("IPv4Address") or None
+                ip = n.get("IPAddress") or static
                 item["macvlan"].append({"network": net_name, "driver": vn["driver"], "ip": ip})
-                vn["containers"].append({"name": name, "ip": ip})
+                # a stopped container with a static IP still "owns" it: starting it would clash
+                vn["containers"].append({"name": name, "ip": ip, "static": bool(static),
+                                         "running": c.get("State") == "running"})
         if name in must_run and item["status"] == "unknown":
             item["status"] = "crit"
             item["detail"] = "stopped (must run)"
