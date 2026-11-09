@@ -1,0 +1,67 @@
+[Unit]
+Description=homelab-dash web server (read-only, fixed list of files)
+Documentation=file:///opt/homelab-dash/docs/INSTALL.md
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I -B /opt/homelab-dash/serve.py --config /etc/homelab-dash/config.ini
+Restart=on-failure
+RestartSec=5s
+
+# ---- identity: a throw-away unprivileged user that exists only while running
+DynamicUser=yes
+PrivateUsers=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+
+# ---- resources
+Nice=5
+CPUWeight=50
+MemoryMax=96M
+TasksMax=48
+LimitNOFILE=256
+
+# ---- filesystem: read-only; only the code and the data folder are visible under /opt and /var/lib
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
+TemporaryFileSystem=/var/lib:ro
+# "-": still start (and answer 503 "no data yet") if the collector never ran
+BindReadOnlyPaths=-/var/lib/homelab-dash
+InaccessiblePaths=-/etc/homelab-dash/secrets -/etc/shadow -/etc/gshadow -/etc/ssh
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+# ---- network: only TCP port 8088; only localhost here, LAN/Tailscale are
+#      added by the drop-in homelab-dash-web.service.d/10-network.conf
+RestrictAddressFamilies=AF_INET AF_INET6
+SocketBindDeny=any
+SocketBindAllow=tcp:8088
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+# ---- kernel attack surface
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+KeyringMode=private
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @swap @reboot @raw-io @cpu-emulation @debug @obsolete
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

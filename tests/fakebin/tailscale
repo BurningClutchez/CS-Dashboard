@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+import os, sys
+if sys.argv[1:3] != ["status", "--json"]:
+    sys.stderr.write("fake tailscale: only 'status --json' is allowed\n"); sys.exit(99)
+print(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "tailscale.json")).read())

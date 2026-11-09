@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Home lab">
+<meta name="referrer" content="no-referrer">
+<title>Home lab</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="title">
+    <span id="overall" class="badge" data-status="unknown"><span class="ico" aria-hidden="true">?</span><span class="lbl">Loading</span></span>
+    <h1 id="host">Home lab</h1>
+  </div>
+  <div class="meta"><span id="updated">waiting for data…</span></div>
+</header>
+
+<div id="banner-error" class="banner banner-error" role="alert" hidden>
+  <strong>Can't load data.</strong> <span id="error-text"></span>
+</div>
+<div id="banner-stale" class="banner banner-stale" role="status" hidden>
+  <strong>Data is stale.</strong> <span id="stale-text"></span>
+</div>
+
+<main id="cards" class="grid" aria-live="polite">
+  <noscript><p class="card">This page needs JavaScript to show the dashboard.</p></noscript>
+</main>
+
+<section id="history" class="history" hidden>
+  <h2>Last 24 hours</h2>
+  <div id="charts" class="charts"></div>
+  <details class="tbl">
+    <summary>Show as table (hourly averages)</summary>
+    <div id="history-table"></div>
+  </details>
+</section>
+
+<footer class="foot">
+  Read-only dashboard · refreshes every 30 s · <span id="version"></span>
+</footer>
+</body>
+</html>
