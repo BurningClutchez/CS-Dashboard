@@ -55,7 +55,7 @@ git clone https://github.com/BurningClutchez/CS-Dashboard.git ~/homelab-dash-src
 ```bash
 cd ~/homelab-dash-src && python3 -m unittest discover -s tests
 ```
-✅ Check: the last line is `OK` (54 tests; it takes under a minute).
+✅ Check: the last line is `OK` (64 tests; it takes under a minute).
 
 **1.3 (Optional) Look at the page with fake data** before installing anything.
 
@@ -73,7 +73,7 @@ You should see a dashboard for a made-up host called "homeserver". Press Ctrl+C 
 **2.1 Copy the code to /opt.**
 
 ```bash
-sudo install -d -o root -g root -m 755 /opt/homelab-dash && sudo cp -r ~/homelab-dash-src/{collect.py,serve.py,detect.py,homelab_dash,web,docs} /opt/homelab-dash/
+sudo install -d -o root -g root -m 755 /opt/homelab-dash && sudo cp -r ~/homelab-dash-src/{collect.py,serve.py,detect.py,unlock.py,homelab_dash,web,docs} /opt/homelab-dash/
 ```
 
 **2.2 Make root the owner of every file and make them read-only for everyone else.**
@@ -132,6 +132,9 @@ should print `config OK` followed by the list of cards. Any mistake is reported 
 ---
 
 ## 4. Secrets (only if you enabled Pi-hole, Jellyfin/Emby or Plex stats)
+
+> **Keeping your secrets in an Ansible vault and want no copy on disk?** Skip this step and follow
+> [SECRETS-FROM-VAULT.md](SECRETS-FROM-VAULT.md) instead. With that setup the secrets live in RAM only.
 
 The values are typed at a hidden prompt (`read -s`). They never appear on the
 command line, in `ps`, in your shell history, in the config, or on the page.

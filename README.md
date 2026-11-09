@@ -55,7 +55,7 @@ no pip, no Docker, no Node and no build step.
 Try it on fake data first, with no install and no root:
 
 ```bash
-python3 -m unittest discover -s tests          # 54 offline tests
+python3 -m unittest discover -s tests          # 64 offline tests
 python3 tests/demo.py                          # http://127.0.0.1:8088/ with a made-up server
 ```
 
@@ -64,6 +64,7 @@ python3 tests/demo.py                          # http://127.0.0.1:8088/ with a m
 * Nothing on the page can change the server: no buttons, no logins, no forms. The server only answers GET and HEAD.
 * `systemd-analyze security`: collector **2.4 OK**, web **0.9 SAFE** (1.0 with your LAN allow-list).
 * Secrets are typed with `read -s` into root-only (600) files. They are never on the command line, in the config, in the JSON or on the page.
+  Or keep them in an **Ansible vault** and load them into RAM only: see [docs/SECRETS-FROM-VAULT.md](docs/SECRETS-FROM-VAULT.md).
 * Access is limited to your LAN subnet and Tailscale in **two** places: the firewall, and systemd's `IPAddressAllow=` on the web unit.
 * Host-header allow-list against DNS rebinding; strict Content-Security-Policy; all text is rendered with `textContent`.
 * The collector only sends `GET` to the Docker socket and can't reach the Internet (`IPAddressAllow` = private ranges).
@@ -72,10 +73,11 @@ python3 tests/demo.py                          # http://127.0.0.1:8088/ with a m
 
 ```
 collect.py serve.py detect.py   entry points (run with python3 -I -B)
+unlock.py                       optional: load secrets from an Ansible vault into RAM
 homelab_dash/                   collector, checks, web server, detector
 web/                            index.html, app.js, style.css, manifest, icons
 systemd/                        collector .service + .timer, web .service
 config/config.example.ini       every option, commented
 tests/                          offline tests, fake system, demo
-docs/                           INSTALL.md (incl. rollback), TEST-PLAN.md
+docs/                           INSTALL.md (incl. rollback), TEST-PLAN.md, SECRETS-FROM-VAULT.md
 ```

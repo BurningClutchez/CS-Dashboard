@@ -6,12 +6,13 @@ never written to status.json.
 """
 
 import json
+import os
 import socket
 import struct
 import time
 
 from .services import find_processes
-from .util import Card, CheckError, http_request, read_secret
+from .util import Card, CheckError, http_request, read_secret, read_text
 
 
 def _base(url):
@@ -118,15 +119,51 @@ def _pihole_v5(cfg, url, timeout, verify):
     }
 
 
+def _write_private(path, text):
+    """Write a small root-only (0600) file atomically. Silently skipped if the
+    folder is gone (secrets locked); the next run simply logs in again."""
+    import tempfile
+    d = os.path.dirname(path)
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=".sid-", dir=d)
+    except OSError:
+        return
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def pihole(cfg, state):
     url = _base(cfg.get("pihole", "url"))
     timeout = min(cfg.check_timeout, 6)
     verify = cfg.getbool("pihole", "verify_tls", True)
     version = (cfg.get("pihole", "version", "auto") or "auto").strip()
-    pstate = state.setdefault("pihole", {})
+    sess_file = (cfg.get("pihole", "session_file", "") or "").strip()
+    if sess_file:
+        # RAM-only mode: keep the Pi-hole session next to the secrets (tmpfs),
+        # never in state.json on disk; drop any copy left there earlier.
+        state.pop("pihole", None)
+        pstate = {}
+        try:
+            pstate["pihole_sid"] = read_text(sess_file).strip()
+        except OSError:
+            pass
+    else:
+        pstate = state.setdefault("pihole", {})
     data = None
     if version in ("auto", "6"):
-        data = _pihole_v6(cfg, url, pstate, timeout, verify)
+        try:
+            data = _pihole_v6(cfg, url, pstate, timeout, verify)
+        finally:
+            if sess_file and pstate.get("pihole_sid") is not None:
+                _write_private(sess_file, pstate["pihole_sid"])
         if data is None and version == "6":
             raise CheckError("no Pi-hole v6 API at %s" % url)
     if data is None:

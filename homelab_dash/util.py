@@ -139,6 +139,9 @@ def read_secret(path):
     try:
         st = os.stat(path, follow_symlinks=False)
     except FileNotFoundError:
+        if path.startswith("/run/"):
+            raise CheckError("secrets are locked (not in RAM since the last boot): "
+                             "run the unlock command from docs/SECRETS-FROM-VAULT.md")
         raise CheckError("secret file missing: %s" % path)
     except PermissionError:
         raise CheckError("cannot read secret file: %s" % path)
