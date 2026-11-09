@@ -1,3 +1,5 @@
+# homelab-dash: keep local configs, secrets and collected data out of git.
+
 # ---- Python
 __pycache__/
 *.py[cod]
