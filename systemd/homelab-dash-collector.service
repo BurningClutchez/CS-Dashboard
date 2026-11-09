@@ -31,6 +31,11 @@ LimitNOFILE=1024
 ProtectSystem=strict
 StateDirectory=homelab-dash
 StateDirectoryMode=0755
+# RAM-only secrets (docs/SECRETS-FROM-VAULT.md): a root-only tmpfs folder that
+# survives between runs but not a reboot. Writable so the Pi-hole session can live there.
+RuntimeDirectory=homelab-dash-secrets
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 # status.json and history.json are chmod 0644 explicitly; everything else stays private
 UMask=0077
 PrivateTmp=yes

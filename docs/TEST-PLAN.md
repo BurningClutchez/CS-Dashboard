@@ -90,4 +90,6 @@ sudo systemctl reboot
 | 4.8 | Uptime reset | System card | uptime shows minutes |
 | 4.9 | Gap visible | History charts | a short break in the lines at the reboot time (no fake line drawn across it) |
 
+If you use RAM-only secrets from a vault, also run tests 4.10–4.13 in [SECRETS-FROM-VAULT.md](SECRETS-FROM-VAULT.md#reboot-test-add-to-test-plan-stage-4).
+
 All stages passed: the dashboard is done. To remove it, follow [Rollback](INSTALL.md#rollback-remove-everything).

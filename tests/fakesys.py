@@ -219,7 +219,7 @@ class _AppHandler(BaseHTTPRequestHandler):
             time.sleep(30)
             return
         if mode == "pihole6":
-            if self.headers.get("X-FTL-SID") != st.get("sid"):
+            if st.get("sid") is None or self.headers.get("X-FTL-SID") != st.get("sid"):
                 return self._json(401, {"error": {"key": "unauthorized"}})
             if self.path == "/api/stats/summary":
                 return self._json(200, {"queries": {"total": 48211, "blocked": 9120, "percent_blocked": 18.92,

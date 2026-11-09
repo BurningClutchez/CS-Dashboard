@@ -34,7 +34,7 @@ UMask=0077
 TemporaryFileSystem=/var/lib:ro
 # "-": still start (and answer 503 "no data yet") if the collector never ran
 BindReadOnlyPaths=-/var/lib/homelab-dash
-InaccessiblePaths=-/etc/homelab-dash/secrets -/etc/shadow -/etc/gshadow -/etc/ssh
+InaccessiblePaths=-/etc/homelab-dash/secrets -/run/homelab-dash-secrets -/etc/shadow -/etc/gshadow -/etc/ssh
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
