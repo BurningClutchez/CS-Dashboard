@@ -276,6 +276,7 @@ With **firewalld**, the detector prints `firewall-cmd --permanent --add-rich-rul
 * On home Wi-Fi: `http://<server LAN IP>:8088/` loads.
 * On mobile data with Tailscale **on**: `http://<tailscale IP or MagicDNS name>:8088/` loads.
 * On mobile data with Tailscale **off**: it does not load (it times out).
+* If home-services is deployed: `http://dashboard.home.arpa/` loads (Pi-hole points the name at the Caddy proxy, which forwards to this server's port 8088).
 
 If a name gives `421 unknown host name`, add that name to `allowed_hosts` in `[web]` and run `sudo systemctl restart homelab-dash-web`.
 This check protects you against DNS rebinding.

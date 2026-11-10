@@ -519,7 +519,8 @@ def draft_config(f):
          "# Review every section, delete what you don't want, then copy to",
          "# /etc/homelab-dash/config.ini. Lines starting with # are ignored.",
          "# Secrets never go in this file: only paths to root-only files."]
-    names = ["auto"]
+    # dashboard.home.arpa: the name home-services (Pi-hole + Caddy) gives this page
+    names = ["auto", "dashboard.home.arpa"]
     if n["tailscale"] and n["tailscale"].get("dns_name"):
         names.append(n["tailscale"]["dns_name"])
     _sec(L, "general", [("hostname", h["hostname"]), ("interval", "60"), ("check_timeout", "8")])
