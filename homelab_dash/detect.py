@@ -311,7 +311,8 @@ def docker(sock="/run/docker.sock"):
             "macvlan_ips": [ip for ip in macvlan_ips if ip], "ports": ports,
         })
     nets = [{"name": n["Name"], "driver": n["Driver"], "parent": (n.get("Options") or {}).get("parent"),
-             "subnet": ((n.get("IPAM") or {}).get("Config") or [{}])[0].get("Subnet")} for n in vlan.values()]
+             "subnet": ((n.get("IPAM") or {}).get("Config") or [{}])[0].get("Subnet"),
+             "ip_range": ((n.get("IPAM") or {}).get("Config") or [{}])[0].get("IPRange")} for n in vlan.values()]
     return {"containers": rows, "vlan_networks": nets}
 
 
@@ -382,6 +383,16 @@ def linuxgsm():
 
 # ------------------------------------------------------------------ output
 
+def local_domains(suffix="home.arpa", hosts="/etc/hosts"):
+    names = set()
+    for line in read_text(hosts, "").splitlines():
+        for name in line.split("#", 1)[0].split()[1:]:
+            name = name.lower().rstrip(".")
+            if name.endswith("." + suffix):
+                names.add(name)
+    return sorted(names)
+
+
 def human(n):
     for u in ("B", "KiB", "MiB", "GiB", "TiB"):
         if n < 1024:
@@ -397,6 +408,7 @@ def gather():
     facts["services"], facts["failed_units"] = systemd_services()
     facts["docker"] = docker()
     facts["linuxgsm"] = linuxgsm()
+    facts["local_domains"] = local_domains()
     facts["home_separate"] = any(m["mount"] in ("/home",) for m in facts["mounts"])
     return facts
 
@@ -473,8 +485,11 @@ def report(f):
                 w("    %-24s %-8s %s %s\n" % (c["name"], c["state"], c["image"][:40],
                                              ("(" + "; ".join(extra) + ")") if extra else ""))
         for vn in dk["vlan_networks"]:
-            w("  %s network %s on %s (%s)%s\n" % (vn["driver"], vn["name"], vn["parent"], vn["subnet"],
+            w("  %s network %s on %s (%s%s)%s\n" % (vn["driver"], vn["name"], vn["parent"], vn["subnet"],
+              ", ip_range " + vn["ip_range"] if vn.get("ip_range") else ", NO ip_range",
               "" if n["macvlan_shim"] else " - the host cannot reach these IPs (no macvlan shim found)"))
+    w("== Local domains (*.home.arpa in /etc/hosts)\n")
+    w("  %s\n" % (", ".join(f["local_domains"]) if f.get("local_domains") else "none found (Pi-hole local DNS is read at run time)"))
     w("== LinuxGSM\n")
     for g in f["linuxgsm"] or []:
         w("  %-16s user %-12s game %-14s query %s port %s\n" % (g["instance"], g["user"], g["game"], g["protocol"], g["port"]))
@@ -520,6 +535,23 @@ def draft_config(f):
          "SMART is read every smart_interval seconds and never wakes sleeping disks.")
     _sec(L, "network", [("interfaces", "auto"), ("dns_test", "example.com"),
                         ("tailscale", "yes" if n["tailscale"] else "no")])
+
+    dk0 = f.get("docker") or {}
+    vnets = dk0.get("vlan_networks") or [] if "error" not in dk0 else []
+    note = "LAN addresses card: free IPs on Docker macvlan/ipvlan networks and local domains as links."
+    if vnets:
+        note += "\nmacvlan/ipvlan found: " + ", ".join(
+            "%s (%s%s)" % (v["name"], v.get("subnet"), ", ip_range " + v["ip_range"] if v.get("ip_range") else ", no ip_range")
+            for v in vnets)
+    else:
+        note += "\nNo macvlan/ipvlan networks found; the card still lists local domains if there are any."
+    _sec(L, "addresses", [("enabled", "auto"), ("warn_free", "5")], note)
+    dom = f.get("local_domains") or []
+    _sec(L, "domains", [("enabled", "auto"), ("suffix", "home.arpa"), ("scheme", "http"),
+                        ("extra", ""), ("links", ""), ("hide", "")],
+         "Local domains, from Pi-hole local DNS, /etc/hosts and 'extra'. Each is a link.\n"
+         "links = name=https://name:port/ ... overrides the link for one name.\n"
+         "Found in /etc/hosts: " + (", ".join(dom) if dom else "none"))
 
     dk = f["docker"]
     if dk and "error" not in dk:

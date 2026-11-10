@@ -38,6 +38,10 @@ Answers (each also readable from the environment variable shown):
   --vault-key FILE=KEY      HLDASH_VAULT_KEYS="pihole.pass=key ..."  (repeatable)
   --shred-old-secrets yes|no HLDASH_SHRED_OLD      default: yes asked / no with --yes
   --firewall yes|no         HLDASH_FIREWALL        add ufw/firewalld rules, default yes
+  --lan-addresses yes|no    HLDASH_LAN_ADDRESSES   LAN addresses card (free macvlan IPs,
+                                                   local domain links), default yes
+  --domain-suffix NAME      HLDASH_DOMAIN_SUFFIX   default home.arpa
+  --domain-scheme http|https HLDASH_DOMAIN_SCHEME  domain links open with, default http
   --continue-on-errors      HLDASH_CONTINUE_ON_ERRORS=yes  carry on after dry-run errors
 
 Secret values are never accepted as options or variables: they come from a
@@ -64,6 +68,9 @@ A_VKEYS="${HLDASH_VAULT_KEYS:-}"
 A_SHRED="${HLDASH_SHRED_OLD:-}"
 A_FW="${HLDASH_FIREWALL:-}"
 A_CONT="${HLDASH_CONTINUE_ON_ERRORS:-}"
+A_LAN="${HLDASH_LAN_ADDRESSES:-}"
+A_DSUF="${HLDASH_DOMAIN_SUFFIX:-}"
+A_DSCH="${HLDASH_DOMAIN_SCHEME:-}"
 need() { [[ $# -ge 2 && -n $2 ]] || { echo "option $1 needs a value (see --help)" >&2; exit 2; }; }
 while (($#)); do
   case "$1" in
@@ -84,6 +91,9 @@ while (($#)); do
     --shred-old-secrets) need "$@"; A_SHRED="$2"; shift;;
     --firewall) need "$@"; A_FW="$2"; shift;;
     --continue-on-errors) A_CONT=yes;;
+    --lan-addresses) need "$@"; A_LAN="$2"; shift;;
+    --domain-suffix) need "$@"; A_DSUF="$2"; shift;;
+    --domain-scheme) need "$@"; A_DSCH="$2"; shift;;
     -h|--help) usage; exit 0;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2;;
   esac
@@ -94,7 +104,10 @@ yn() {  # normalise yes/no answers given as options: yn VALUE -> y|n|""
     *) echo "bad yes/no value: $1" >&2; exit 2;; esac
 }
 A_TS="$(yn "$A_TS")"; A_KEEP="$(yn "$A_KEEP")"; A_SHRED="$(yn "$A_SHRED")"
-A_FW="$(yn "$A_FW")"; A_CONT="$(yn "$A_CONT")"
+A_FW="$(yn "$A_FW")"; A_CONT="$(yn "$A_CONT")"; A_LAN="$(yn "$A_LAN")"
+case "$A_DSCH" in ""|http|https) ;; *) echo "--domain-scheme must be http or https" >&2; exit 2;; esac
+SUF_RE='^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$'
+if [[ -n $A_DSUF && ! ${A_DSUF,,} =~ $SUF_RE ]]; then echo "--domain-suffix must look like home.arpa" >&2; exit 2; fi
 case "$A_SECRETS" in ""|vault|skip|type) ;; *) echo "--secrets must be vault, skip or type" >&2; exit 2;; esac
 if ((YES)) && [[ $A_SECRETS == type ]]; then
   echo "--secrets type needs a person at the keyboard; with --yes use vault or skip" >&2; exit 2
@@ -276,6 +289,7 @@ NEW_CONFIG=1
 if [[ -f $CFG_LIVE ]]; then
   if yes_no "Keep the existing $CFG_LIVE" "${A_KEEP:-y}"; then
     NEW_CONFIG=0; ((PREVIEW)) && cp "$CFG_LIVE" "$CFG"
+    [[ -n $A_LAN$A_DSUF$A_DSCH ]] && warn "kept your config: LAN addresses options not applied (edit [addresses] and [domains] in it)"
   else
     run cp -p "$CFG_LIVE" "$CFG_LIVE.bak.$(date +%Y%m%d-%H%M%S)"
   fi
@@ -287,6 +301,20 @@ if ((NEW_CONFIG)); then
   [[ $INSTALL_DIR != /opt/homelab-dash ]] && sed -i "/^\[web\]/a web_root = $INSTALL_DIR/web" "$DRAFT"
   [[ $CONF_DIR != /etc/homelab-dash ]] && sed -i "s#/etc/homelab-dash/secrets/#$CONF_DIR/secrets/#g" "$DRAFT"
   ok "draft written from what was detected"
+  # LAN addresses card (free IPs on macvlan/ipvlan networks, local domains as links)
+  if yes_no "Show the LAN addresses card (free macvlan IPs, local domain links)" "${A_LAN:-y}"; then
+    DSUF="$(ask "Local domain suffix" "${A_DSUF:-home.arpa}")"; DSUF="${DSUF,,}"; DSUF="${DSUF#.}"
+    [[ $DSUF =~ $SUF_RE ]] || die "'$DSUF' is not a domain suffix like home.arpa"
+    DSCH="$(ask "Open domain links with (http/https)" "${A_DSCH:-http}")"
+    [[ $DSCH == http || $DSCH == https ]] || die "answer http or https"
+    sed -i -e "/^\[domains\]/,/^\[/ s/^suffix = .*/suffix = $DSUF/" \
+           -e "/^\[domains\]/,/^\[/ s/^scheme = .*/scheme = $DSCH/" "$DRAFT"
+    ok "LAN addresses card on: *.$DSUF, links open with $DSCH"
+  else
+    sed -i -e '/^\[addresses\]/,/^\[/ s/^enabled = .*/enabled = no/' \
+           -e '/^\[domains\]/,/^\[/ s/^enabled = .*/enabled = no/' "$DRAFT"
+    ok "LAN addresses card off"
+  fi
   ED="${EDITOR:-$(command -v nano || command -v vi || echo vi)}"
   while :; do
     if ((YES)); then :   # unattended: no editor; the draft must validate as written
