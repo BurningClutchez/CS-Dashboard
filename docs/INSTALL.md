@@ -514,7 +514,7 @@ sudo bash ./quillwort.sh --yes --subnet 192.168.1.0/24 --secrets vault --vault /
 | Offline tests | 1.2 | fake-data tests; stops if any fail (1.3 demo is skipped) | – |
 | Your choices | – | detects the server (read-only) for the defaults | install and config folders, port, subnet, Tailscale |
 | Install the code | 2 | copies the code, owned by root, read-only | – |
-| Config | 3 | drafts the config, opens your editor, re-validates until it's valid and has no secret values | keep existing config? review the draft? |
+| Config | 3 | drafts the config, opens your editor, re-validates until it's valid and has no secret values | keep existing config? LAN addresses card (free macvlan IPs, domain links)? domain suffix? http/https? review the draft? |
 | Secrets | 4 | only for cards that need one | 1 type them (hidden), 2 Ansible vault (RAM only), 3 skip |
 | Dry run | 5 | every check once, writes nothing, lists errors | continue on errors? (default no) |
 | Units | 6.1–6.5 | 3 units and the network drop-in, with your paths, port and subnet | – |
@@ -548,6 +548,9 @@ If a step fails, it stops and names the step. Everything before that step stays 
 | `--vault-key FILE=KEY` | `HLDASH_VAULT_KEYS="pihole.pass=key …"` | vault key for each secret file; repeatable. Defaults `pihole_password`, `jellyfin_api_key`, `plex_token` |
 | `--shred-old-secrets yes\|no` | `HLDASH_SHRED_OLD` | after switching to the vault, shred old on-disk secrets. Default: asked, **no** with `--yes` |
 | `--firewall yes\|no` | `HLDASH_FIREWALL` | add the firewall rules; default yes |
+| `--lan-addresses yes\|no` | `HLDASH_LAN_ADDRESSES` | LAN addresses card: free IPs on macvlan/ipvlan networks and local domain links; default yes (new configs only) |
+| `--domain-suffix NAME` | `HLDASH_DOMAIN_SUFFIX` | domains listed on that card; default `home.arpa` |
+| `--domain-scheme http\|https` | `HLDASH_DOMAIN_SCHEME` | how the domain links open; default `http` |
 | `--continue-on-errors` | `HLDASH_CONTINUE_ON_ERRORS=yes` | carry on when the dry run shows errors; default: stop |
 
 Secret values are never taken from flags or variables, only from a hidden prompt or your vault.

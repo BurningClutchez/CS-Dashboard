@@ -179,6 +179,7 @@ class TestDetectDraft(unittest.TestCase):
                          {"instance": "mcbserver", "server": "mcbserver", "user": "mc", "home": "/home/mc",
                           "game": "Minecraft Bedrock", "executable": "bedrock_server", "protocol": "none", "port": None}],
             "home_separate": True,
+            "local_domains": ["nas.home.arpa"],
         }
 
     def test_draft_parses_and_validates(self):
@@ -199,6 +200,11 @@ class TestDetectDraft(unittest.TestCase):
         self.assertIn("vhserver", [n for n, _ in cfg.sections("game")])
         self.assertEqual(cfg.get("game:mcbserver", "protocol"), "none")
         self.assertIn("plex", [n for n, _ in cfg.sections("media")] + ["plex"])
+        # LAN addresses card: sections present, macvlan network and its missing ip_range noted
+        self.assertEqual(cfg.get("addresses", "enabled"), "auto")
+        self.assertEqual(cfg.get("domains", "suffix"), "home.arpa")
+        self.assertIn("lan (192.168.1.0/24, no ip_range)", text)
+        self.assertIn("Found in /etc/hosts: nas.home.arpa", text)
         shutil.rmtree(d)
 
     def test_dropins_and_firewall(self):
