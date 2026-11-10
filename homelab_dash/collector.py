@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 
-from . import SCHEMA, __version__, apps, disks, network, services, system
+from . import SCHEMA, __version__, addresses, apps, disks, network, services, system
 from .config import ConfigError, default_config_path, load
 from .util import atomic_write_json, worst
 
@@ -128,6 +128,13 @@ def collect_once(cfg):
     state = load_state(state_path)
     deadline = cfg.getint("general", "deadline", 30)
     cards = run_cards(cfg, state, deadline)
+    # Built from the other cards' data, so it runs after them.
+    try:
+        extra = addresses.build(cfg, cards, state)
+    except Exception as exc:  # noqa: BLE001
+        extra = error_card("addresses", "LAN addresses", "%s: %s" % (type(exc).__name__, exc))
+    if extra:
+        cards.append(extra)
     host = next((c["data"].get("hostname") for c in cards if c["id"] == "system"), None)
     status = {
         "schema": SCHEMA,

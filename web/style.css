@@ -107,6 +107,12 @@ h3 { font-size: 1rem; }
 .rows .name small { display: block; color: var(--text-muted); font-size: .76rem; }
 .rows .val { flex: none; color: var(--text-secondary); font-size: .85rem; text-align: right; font-variant-numeric: tabular-nums; max-width: 55%; overflow-wrap: anywhere; }
 .rows a { color: inherit; }
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .1rem 0 .5rem 1.9rem; }
+.chip { font: .78rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: .05rem .4rem;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface-0); color: var(--text-primary); }
+.nodot { display: inline-block; width: 1.1rem; flex: none; }
+.rows li.domain a { color: var(--series-1); text-decoration: none; font-weight: 600; }
+.rows li.domain a:hover, .rows li.domain a:focus-visible { text-decoration: underline; }
 .tag { display: inline-block; font-size: .7rem; padding: 0 .35rem; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); margin-left: .3rem; vertical-align: 1px; }
 
 .meter { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; margin: .3rem 0 .1rem; }

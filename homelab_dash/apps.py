@@ -77,7 +77,22 @@ def _pihole_v6(cfg, url, state, timeout, verify):
     c2, raw2, _ = get("/api/dns/blocking", sid)
     if c2 == 200:
         blocking = json.loads(raw2.decode()).get("blocking")
+    # Local DNS records (read-only GETs) for the "LAN addresses" card.
+    local = []
+    c3, raw3, _ = get("/api/config/dns/hosts", sid)
+    if c3 == 200:
+        for line in ((json.loads(raw3.decode()).get("config") or {}).get("dns") or {}).get("hosts") or []:
+            parts = str(line).split()
+            for name in parts[1:]:
+                local.append({"name": name, "target": parts[0], "type": "A"})
+    c4, raw4, _ = get("/api/config/dns/cnameRecords", sid)
+    if c4 == 200:
+        for rec in ((json.loads(raw4.decode()).get("config") or {}).get("dns") or {}).get("cnameRecords") or []:
+            parts = str(rec).split(",")
+            if len(parts) >= 2:
+                local.append({"name": parts[0].strip(), "target": parts[1].strip(), "type": "CNAME"})
     return {
+        "local_dns": local,
         "version": 6,
         "queries": q.get("total"),
         "blocked": q.get("blocked"),
@@ -105,7 +120,21 @@ def _pihole_v5(cfg, url, timeout, verify):
         raise CheckError("Pi-hole v5 API returned no JSON")
     if not isinstance(s, dict) or "dns_queries_today" not in s:
         raise CheckError("Pi-hole v5 API returned no stats (API token wrong or missing?)")
+    local = []
+    if tok_file:
+        auth = "&auth=" + read_secret(tok_file)
+        for kind, rtype in (("customdns", "A"), ("customcname", "CNAME")):
+            c, r, _ = http_request(url + "/admin/api.php?%s&action=get%s" % (kind, auth),
+                                   timeout=timeout, verify_tls=verify)
+            try:
+                rows = json.loads(r.decode()).get("data") or [] if c == 200 else []
+            except (ValueError, AttributeError):
+                rows = []
+            for row in rows:
+                if isinstance(row, list) and len(row) >= 2:
+                    local.append({"name": str(row[0]), "target": str(row[1]), "type": rtype})
     return {
+        "local_dns": local,
         "version": 5,
         "queries": s.get("dns_queries_today"),
         "blocked": s.get("ads_blocked_today"),

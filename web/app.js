@@ -104,7 +104,7 @@
   }
   function row(list, name, sub, val, status, link) {
     var li = el("li");
-    li.appendChild(badgeDot(status));
+    if (status) li.appendChild(badgeDot(status)); else li.appendChild(el("span", "nodot"));
     var n = el("div", "name");
     if (link && /^https?:\/\//i.test(link)) {
       var a = el("a", null, name);
@@ -292,6 +292,7 @@
     var ul = el("ul", "rows");
     row(ul, "Blocking", "Pi-hole v" + d.version, d.blocking || "unknown", d.blocking === "enabled" ? "ok" : (d.blocking ? "warn" : "unknown"));
     if (isNum(d.gravity_updated)) row(ul, "Blocklists updated", null, ago(serverNow() - d.gravity_updated), "ok");
+    if (d.local_dns && d.local_dns.length) row(ul, "Local DNS records", null, String(d.local_dns.length), "ok");
     body.appendChild(ul);
   };
 
@@ -320,6 +321,48 @@
       row(ul, g.label, sub, val, g.status);
     });
     body.appendChild(ul);
+  };
+
+  R.addresses = function (body, d) {
+    (d.networks || []).forEach(function (n, i) {
+      if (i === 0) section(body, "Free IPs on macvlan / ipvlan");
+      var ul = el("ul", "rows");
+      row(ul, n.name, n.driver + (n.parent ? " on " + n.parent : "") + " · pool " + n.pool +
+          (n.pool !== n.subnet ? " in " + n.subnet : "") + (n.gateway ? " · gateway " + n.gateway : ""),
+          n.free_count + " free of " + n.pool_size, n.status);
+      body.appendChild(ul);
+      if (n.free_ranges && n.free_ranges.length) {
+        var chips = el("div", "chips");
+        n.free_ranges.forEach(function (r) { chips.appendChild(el("code", "chip", r)); });
+        if (n.more_ranges) chips.appendChild(el("span", "sub", "+" + n.more_ranges + " more ranges"));
+        body.appendChild(chips);
+      }
+      (n.notes || []).forEach(function (t) { body.appendChild(el("p", "note", t)); });
+      if (n.used && n.used.length) {
+        var det = el("details", "stack");
+        var sum = el("summary");
+        sum.appendChild(el("span", "name", "In use (" + n.used.length + ")"));
+        det.appendChild(sum);
+        var ul2 = el("ul", "rows");
+        n.used.forEach(function (u) { row(ul2, u.ip, u.note || null, u.name, u.note ? "unknown" : "ok"); });
+        det.appendChild(ul2);
+        body.appendChild(det);
+      }
+    });
+    if (d.domains_enabled) {
+      section(body, "Domains (*." + (d.suffix || "home.arpa") + ")");
+      if (!d.domains || !d.domains.length) {
+        body.appendChild(el("p", "sub", "No names found in Pi-hole local DNS, /etc/hosts or [domains] extra."));
+      } else {
+        var ul3 = el("ul", "rows");
+        d.domains.forEach(function (x) {
+          // listed, not checked: no status icon
+          var li = row(ul3, x.name, (x.targets || []).join(", ") || null, x.sources.join(" · "), null, x.url);
+          li.classList.add("domain");
+        });
+        body.appendChild(ul3);
+      }
+    }
   };
 
   R.error = function () {};

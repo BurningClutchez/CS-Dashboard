@@ -94,6 +94,15 @@ def build_root(base):
         if phys:
             os.makedirs(os.path.join(net, name, "device"), exist_ok=True)
     write(os.path.join(etc, "os-release"), 'PRETTY_NAME="Ubuntu 24.04.1 LTS"\nID=ubuntu\n')
+    write(os.path.join(etc, "hosts"),
+          "127.0.0.1 localhost\n192.168.1.10 homeserver homeserver.home.arpa\n"
+          "192.168.1.20 printer.home.arpa   # office printer\n# 192.168.1.99 old.home.arpa\n")
+    # kernel neighbor table: one LAN device inside the macvlan pool, one outside, one incomplete
+    write(os.path.join(proc, "net/arp"),
+          "IP address       HW type     Flags       HW address            Mask     Device\n"
+          "192.168.1.50     0x1         0x2         aa:bb:cc:00:00:50     *        enp3s0\n"
+          "192.168.1.20     0x1         0x2         aa:bb:cc:00:00:20     *        enp3s0\n"
+          "192.168.1.57     0x1         0x0         00:00:00:00:00:00     *        enp3s0\n")
     return {"proc": proc, "sys": sysd, "etc": etc, "fs": fs}
 
 
@@ -228,6 +237,12 @@ class _AppHandler(BaseHTTPRequestHandler):
                                         "gravity": {"domains_being_blocked": 312455, "last_update": int(__import__("time").time()) - 3 * 3600}})
             if self.path == "/api/dns/blocking":
                 return self._json(200, {"blocking": "enabled"})
+            if self.path == "/api/config/dns/hosts":
+                return self._json(200, {"config": {"dns": {"hosts": [
+                    "192.168.1.53 pihole.home.arpa", "192.168.1.30 nas.home.arpa nas.lan"]}}})
+            if self.path == "/api/config/dns/cnameRecords":
+                return self._json(200, {"config": {"dns": {"cnameRecords": [
+                    "jellyfin.home.arpa,homeserver.home.arpa", "media.example.com,homeserver.home.arpa"]}}})
         if mode == "pihole5" and self.path.startswith("/admin/api.php"):
             if "auth=" + PIHOLE_PASSWORD not in self.path:
                 return self._json(200, [])
@@ -411,6 +426,10 @@ type = process
 match = valheim_server
 user = 1001
 label = Valheim process
+
+[domains]
+extra = grafana.home.arpa
+links = nas.home.arpa=https://nas.home.arpa:5001/
 
 [pihole]
 url = {pihole}
