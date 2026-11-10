@@ -17,6 +17,7 @@ SUMMARY='sudo python3 -I -B /opt/homelab-dash/collect.py --config /etc/homelab-d
 | 1.1 | Unit and integration tests | `python3 -m unittest discover -s tests -v` | last line `OK` |
 | 1.2 | Demo page renders | `python3 tests/demo.py --port 8099`, open via SSH tunnel | cards appear; Disks shows a degraded md0 and a sleeping drive; Docker groups stacks with sidecars/add-ons/macvlan; 24-hour charts show a gap where the "reboot" was |
 | 1.3 | Phone layout | open the demo on the phone (tunnel or same PC) | no sideways scrolling; cards in one column |
+| 1.4 | LAN addresses card (demo) | same demo page | `lan_macvlan` shows **10 free of 14** in 3 ranges; `iot_ipvlan` is yellow with the "no ip_range" note; 6 `*.home.arpa` names are links, and `nas.home.arpa` opens `https://nas.home.arpa:5001/` |
 
 What the automated tests cover (tests/test_collector.py, tests/test_webserver_config.py):
 
@@ -26,7 +27,12 @@ What the automated tests cover (tests/test_collector.py, tests/test_webserver_co
 * **Read-only:** the fake Docker counts any write request and must see none. The web server returns 405 for every method except GET/HEAD and 404 for `state.json`, `..` paths and directories. It sends 421 for unknown Host names (DNS rebinding) and `no-store` on JSON.
 * Pi-hole re-uses one session instead of logging in every minute.
 * `--dry-run` writes nothing. File modes are 644 for status/history and 600 for state.
-* The draft config that `detect.py` writes always passes validation.
+* The draft config that `detect.py` writes always passes validation, including its `[addresses]` and `[domains]` sections.
+* **LAN addresses:**
+  * Free IPs are the pool (`ip_range`, else the subnet) minus container IPs, static IPs of stopped containers, the gateway, reserved addresses, the server's own IPs and complete ARP entries. Incomplete ARP entries still count as free.
+  * The ranges are compact, the card turns yellow below `warn_free`, and it notes a missing `ip_range`.
+  * Domains are merged from Pi-hole (A and CNAME), `/etc/hosts` (commented lines ignored) and config, with per-name link overrides.
+  * The card is hidden when there is nothing to show.
 
 ## Stage 2: Install time
 
@@ -43,6 +49,12 @@ These are the checks in INSTALL.md. The important ones:
 | 2.7 | "Can't load" banner | `sudo systemctl stop homelab-dash-web`; on the phone, switch to another app and back: a red **Can't load data** banner appears within about 10 s. Then `sudo systemctl start homelab-dash-web`, switch away and back: the banner goes away |
 | 2.8 | "Data is stale" banner | `sudo systemctl stop homelab-dash-collector.timer`; wait 4 minutes: a yellow **Data is stale** banner appears. Then `sudo systemctl start homelab-dash-collector.timer`; within about 90 s it goes away |
 | 2.9 | A broken check stays on its card | in the config, set the URL of one `type = http` service to an unused port (for example `http://127.0.0.1:1/`). Within about 60 s only that row turns red, with "connection refused". Put the URL back afterwards |
+| 2.10 | LAN addresses card appears | it's there if you have a macvlan/ipvlan network or a `*.home.arpa` name (absent otherwise: that's correct) |
+| 2.11 | Free IPs agree with Docker (read-only) | for each network on the card: `docker network inspect NAME --format '{{json .IPAM.Config}} {{range .Containers}}{{.Name}}={{.IPv4Address}} {{end}}'`. The card's pool matches `IPRange` (or `Subnet`); every container IP is under **In use**, and none is in a free range. Stopped containers with a static IP are missing from `inspect` but listed on the card as "stopped, IP reserved" |
+| 2.12 | LAN devices are excluded | `ip neigh show dev PARENT` (PARENT = the network's parent interface). No `REACHABLE`/`STALE` address inside the pool appears in a free range |
+| 2.13 | Domains are complete | compare with Pi-hole's *Local DNS → DNS records* and *CNAME records*, plus `grep -i home.arpa /etc/hosts`: the same names, nothing extra |
+| 2.14 | Domain links work | on the phone, tap two names: each opens that service in a new tab, and a name in `[domains] links` opens its own URL (for example the `https://…:5001/` port) |
+| 2.15 | Pi-hole failure stays contained | set `[pihole] url` to an unused port. Within about 60 s the Pi-hole card shows an error, and the LAN addresses card shows "Pi-hole data unavailable" but still lists free IPs and `/etc/hosts` names. Put the URL back afterwards |
 
 ## Stage 3: 24-hour soak
 
@@ -61,6 +73,7 @@ Start it right after step 9 and note the time. The next day, run each command:
 | 3.9 | HDDs still sleep (if you use spindown) | `sudo smartctl -n standby -i /dev/sdX \| tail -1` while idle | "Device is in STANDBY mode": the dashboard didn't wake it |
 | 3.10 | Page over 24 h | open the History section on the phone | charts cover the whole day and match what you'd expect (backups, Plex nights) |
 | 3.11 | Data is fresh | `$SUMMARY` | `written NN s ago` with NN < 90, no `STALE` |
+| 3.12 | LAN addresses card stayed healthy | `$SUMMARY \| grep -A3 addresses` | no errors listed; free-IP counts only moved when containers or LAN devices came and went |
 
 ## Stage 4: Reboot test
 
@@ -89,7 +102,8 @@ sudo systemctl reboot
 | 4.7 | Phone | open the home-screen app on Wi-Fi and on Tailscale | loads; "updated … s ago" is under a minute |
 | 4.8 | Uptime reset | System card | uptime shows minutes |
 | 4.9 | Gap visible | History charts | a short break in the lines at the reboot time (no fake line drawn across it) |
+| 4.10 | LAN addresses card back | LAN addresses card | same networks, **In use** lists and domains as before the reboot. Free counts can be a little *higher* for the first minutes: the neighbor table starts empty and fills as LAN devices talk to the server. That's expected |
 
-If you use RAM-only secrets from a vault, also run tests 4.10–4.13 in [SECRETS-FROM-VAULT.md](SECRETS-FROM-VAULT.md#reboot-test-add-to-test-plan-stage-4).
+If you use RAM-only secrets from a vault, also run the reboot tests in [SECRETS-FROM-VAULT.md](SECRETS-FROM-VAULT.md#reboot-test-add-to-test-plan-stage-4). Until you unlock, the LAN addresses card shows "Pi-hole data unavailable" for its domains, like the Pi-hole card itself.
 
 All stages passed: the dashboard is done. To remove it, follow [Rollback](INSTALL.md#rollback-remove-everything).

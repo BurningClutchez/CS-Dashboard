@@ -149,10 +149,10 @@ a disk (`/swap.img`, a partition) rather than zram. To be strict, pick one:
 
 | # | Test | Pass if |
 |---|---|---|
-| 4.10 | After reboot, before unlocking | Pi-hole / media cards show *secrets are locked*; every other card is OK |
-| 4.11 | `ls /run/homelab-dash-secrets` | empty (or only appears after the first collector run) |
-| 4.12 | Run U1 and U2, wait 1 minute | those cards are back |
-| 4.13 | No copy on disk: `sudo grep -rl "pihole_sid" /var/lib/homelab-dash/` | prints nothing |
+| 4.11 | After reboot, before unlocking | Pi-hole / media cards show *secrets are locked*; the LAN addresses card notes "Pi-hole data unavailable" for its domains; every other card is OK |
+| 4.12 | `ls /run/homelab-dash-secrets` | empty (or only appears after the first collector run) |
+| 4.13 | Run U1 and U2, wait 1 minute | those cards are back |
+| 4.14 | No copy on disk: `sudo grep -rl "pihole_sid" /var/lib/homelab-dash/` | prints nothing |
 
 ## Rollback
 
