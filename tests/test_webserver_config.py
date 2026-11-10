@@ -193,6 +193,7 @@ class TestDetectDraft(unittest.TestCase):
         self.assertEqual(cfg.get("disks", "smart"), "/dev/sda /dev/sdb:sat")
         self.assertEqual(cfg.get("docker", "must_run"), "jellyfin pihole plex")
         self.assertIn("homeserver.tail-x.ts.net", cfg.get("web", "allowed_hosts"))
+        self.assertIn("dashboard.home.arpa", cfg.get("web", "allowed_hosts"))
         names = [n for n, _ in cfg.sections("service")]
         self.assertIn("samba", names)
         self.assertNotIn("uptime-kuma", names)        # inactive: commented out
