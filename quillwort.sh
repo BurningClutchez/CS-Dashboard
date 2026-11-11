@@ -168,22 +168,37 @@ step() { STEP="$*"; printf '\n%s== %s%s\n' "$bold" "$*" "$off"; }
 ok()   { printf '  %s✓%s %s\n' "$green" "$off" "$*"; }
 warn() { printf '  %s!%s %s\n' "$yellow" "$off" "$*"; }
 die()  { printf '  %s✗ %s%s\n' "$red" "$*" "$off" >&2; exit 1; }
-trap 'printf "\n%s✗ stopped during: %s%s\n  Steps before this one were completed. To undo: docs/INSTALL.md \"Rollback\".\n" "$red" "$STEP" "$off" >&2' ERR
+trap '((BASHPID == $$)) && printf "\n%s✗ stopped during: %s%s\n  Steps before this one were completed. To undo: docs/INSTALL.md \"Rollback\".\n" "$red" "$STEP" "$off" >&2' ERR
 
 # run CMD...: execute, or only show it in --preview mode
 run() {
   if ((PREVIEW)); then printf '  [preview] '; printf '%q ' "$@"; printf '\n'; else "$@"; fi
 }
+# write_root_file FILE MODE: write stdin to FILE, owned by root, with MODE.
+# (Not `install /dev/stdin FILE`: the Rust coreutils of Ubuntu 25.10+ refuse that.)
+write_root_file() {
+  local tmp
+  tmp="$(mktemp "$1.XXXXXX")" || return 1          # created 0600, next to FILE
+  if cat >"$tmp" && chmod "$2" "$tmp" && chown root:root "$tmp" && mv -f "$tmp" "$1"; then return 0; fi
+  rm -f "$tmp"; return 1
+}
 # put FILE MODE: write stdin to FILE (root-owned), or show it in --preview mode
 put() {
   if ((PREVIEW)); then printf '  [preview] would write %s (mode %s):\n' "$1" "$2"; sed 's/^/      | /'; else
-    install -o root -g root -m "$2" /dev/stdin "$1"; fi
+    write_root_file "$1" "$2"; fi
 }
 ask() {  # ask "Question" "default" -> answer on stdout. Unattended: the default, shown in the log.
   local ans
   if ((YES)); then printf '  %s: %s (unattended)\n' "$1" "${2:-}" >&2; printf '%s' "${2:-}"; return; fi
   read -r -p "  $1${2:+ [$2]}: " ans </dev/tty
   # the prompt itself reaches the log through tee; add the typed answer after it
+  if [[ -n $ans ]]; then printf '%s\n' "$ans"; else printf '(default) %s\n' "${2:-}"; fi >>"${ANSWER_LOG:-/dev/null}"
+  printf '%s' "${ans:-${2:-}}"
+}
+ask_path() {  # like ask, with Tab completion (readline) for file and folder names
+  local ans
+  if ((YES)); then printf '  %s: %s (unattended)\n' "$1" "${2:-}" >&2; printf '%s' "${2:-}"; return; fi
+  read -e -r -p "  $1${2:+ [$2]}: " ans </dev/tty
   if [[ -n $ans ]]; then printf '%s\n' "$ans"; else printf '(default) %s\n' "${2:-}"; fi >>"${ANSWER_LOG:-/dev/null}"
   printf '%s' "${ans:-${2:-}}"
 }
@@ -272,8 +287,8 @@ ok "host $D_HOST, address ${D_IP:-?}, LAN ${D_SUBNET:-?}, firewall $D_FW, Tailsc
 [[ $D_SMART == 1 ]] || warn "smartctl not installed: no drive health (install smartmontools and re-run to add it)"
 
 step "Your choices (used by steps 2-9)"
-INSTALL_DIR="$(ask "Install the code to" "${A_INSTALL:-/opt/homelab-dash}")";   safe_dir "$INSTALL_DIR"
-CONF_DIR="$(ask "Config folder" "${A_CONF:-/etc/homelab-dash}")";             safe_dir "$CONF_DIR"
+INSTALL_DIR="$(ask_path "Install the code to" "${A_INSTALL:-/opt/homelab-dash}")";   safe_dir "$INSTALL_DIR"
+CONF_DIR="$(ask_path "Config folder" "${A_CONF:-/etc/homelab-dash}")";             safe_dir "$CONF_DIR"
 printf '  Data folder is fixed: %s\n' "$DATA_DIR"
 PORT="$(ask "Dashboard port" "${A_PORT:-$D_PORT}")"
 [[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1024 && PORT <= 65535)) || die "port must be 1024-65535"
@@ -372,9 +387,10 @@ if ((NEW_CONFIG)); then
         [[ -n $furl && $furl != "$url" ]] && enable_stat "$kind" "$furl"
         ;;
       off)
-        warn "$label stats are off in the draft: $reason (url $url)"
+        warn "$label stats are off in the draft: $reason${url:+ (url $url)}"
         if yes_no "Turn on $label stats" "$( [[ -n $furl ]] && echo y || { ((YES)) && echo n || echo y; } )"; then
-          enable_stat "$kind" "$(ask "$label URL, reachable from this server" "${furl:-$url}")"
+          u="$(ask "$label URL, reachable from this server (Enter = leave it off)" "${furl:-$url}")"
+          if [[ -n $u ]]; then enable_stat "$kind" "$u"; else warn "$label stats left off"; fi
         fi
         ;;
       missing)
@@ -386,7 +402,8 @@ if ((NEW_CONFIG)); then
     ADD="$(ask "Add stats for one that runs elsewhere? (${MISSING[*]}; Enter = none)" "")"
     for kind in $ADD; do
       [[ " ${MISSING[*]} " == *" $kind "* ]] || { warn "'$kind' skipped: choose from ${MISSING[*]}"; continue; }
-      enable_stat "$kind" "$(ask "$(stat_label "$kind") URL, reachable from this server" "")"
+      u="$(ask "$(stat_label "$kind") URL, reachable from this server (Enter = skip)" "")"
+      if [[ -n $u ]]; then enable_stat "$kind" "$u"; else warn "$(stat_label "$kind") skipped"; fi
     done
   fi
   ED="${EDITOR:-$(command -v nano || command -v vi || echo vi)}"
@@ -447,7 +464,7 @@ else
       read -rs -p "  Secret for [$sec] (input hidden): " S </dev/tty; echo
       [[ -n $S ]] || { warn "empty, skipped"; continue; }
       if ((PREVIEW)); then printf '  [preview] would write %s (mode 600, %d characters)\n' "$path" "${#S}"
-      else printf '%s\n' "$S" | install -o root -g root -m 600 /dev/stdin "$path"; fi
+      else printf '%s\n' "$S" | write_root_file "$path" 600 || die "could not write $path"; fi
       unset S
       ok "$path"
     done
@@ -456,10 +473,10 @@ else
     AV="$(sudo -u "$RUN_AS" bash -lc 'command -v ansible-vault' </dev/null 2>/dev/null || command -v ansible-vault || true)"
     [[ -n $AV ]] || die "ansible-vault not found for user $RUN_AS (install ansible-core, or use option 1)"
     ok "using $AV"
-    VAULT="$(ask "Path to your vault file" "$A_VAULT")"
+    VAULT="$(ask_path "Path to your vault file (Tab completes)" "$A_VAULT")"
     [[ -n $VAULT ]] || die "no vault file given"
     sudo -u "$RUN_AS" test -r "$VAULT" </dev/null || die "$VAULT is not readable by $RUN_AS"
-    VPASS="$(ask "Vault password file (leave empty to be asked)" "$A_VPASS")"
+    VPASS="$(ask_path "Vault password file (leave empty to be asked)" "$A_VPASS")"
     [[ -z $VPASS ]] || sudo -u "$RUN_AS" test -r "$VPASS" </dev/null || die "$VPASS is not readable by $RUN_AS"
     MAP=""
     for line in "${SECRETS[@]}"; do

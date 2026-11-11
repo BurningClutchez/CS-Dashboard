@@ -136,7 +136,9 @@ should print `config OK` followed by the list of cards. Any mistake is reported 
 > **Keeping your secrets in an Ansible vault and want no copy on disk?** Skip this step and follow
 > [SECRETS-FROM-VAULT.md](SECRETS-FROM-VAULT.md) instead. With that setup the secrets live in RAM only.
 
-The values are typed at a hidden prompt (`read -s`). They never appear on the
+The values are typed at a hidden prompt (`read -s`) and written by `sh -c 'umask 077; cat > …'`,
+so each file is created root-only (600) from the start. (Not `install /dev/stdin`: Ubuntu 25.10+ uses the
+Rust coreutils, whose `install` refuses it.) They never appear on the
 command line, in `ps`, in your shell history, in the config, or on the page.
 `printf` is a shell builtin, so the secret is not passed as a process argument.
 
@@ -151,21 +153,21 @@ sudo install -d -o root -g root -m 700 /etc/homelab-dash/secrets
 (recommended: it can be revoked on its own). Pi-hole v5: *Settings → API → Show API token*.
 
 ```bash
-read -rs -p "Pi-hole password/token: " S; echo; printf '%s\n' "$S" | sudo install -o root -g root -m 600 /dev/stdin /etc/homelab-dash/secrets/pihole.pass; unset S
+read -rs -p "Pi-hole password/token: " S; echo; printf '%s\n' "$S" | sudo sh -c 'umask 077; cat > /etc/homelab-dash/secrets/pihole.pass'; unset S
 ```
 ✅ Check: `sudo stat -c '%a %U %s bytes' /etc/homelab-dash/secrets/pihole.pass` prints `600 root` and a size greater than 1.
 
 **4.3 Jellyfin / Emby.** *Dashboard → API Keys → +* and name it `homelab-dash`.
 
 ```bash
-read -rs -p "Jellyfin API key: " S; echo; printf '%s\n' "$S" | sudo install -o root -g root -m 600 /dev/stdin /etc/homelab-dash/secrets/jellyfin.key; unset S
+read -rs -p "Jellyfin API key: " S; echo; printf '%s\n' "$S" | sudo sh -c 'umask 077; cat > /etc/homelab-dash/secrets/jellyfin.key'; unset S
 ```
 ✅ Check: `sudo stat -c '%a %U %s bytes' /etc/homelab-dash/secrets/jellyfin.key` prints `600 root …`.
 
 **4.4 Plex.** You need your account token (Plex support article "Finding an authentication token / X-Plex-Token").
 
 ```bash
-read -rs -p "Plex token: " S; echo; printf '%s\n' "$S" | sudo install -o root -g root -m 600 /dev/stdin /etc/homelab-dash/secrets/plex.token; unset S
+read -rs -p "Plex token: " S; echo; printf '%s\n' "$S" | sudo sh -c 'umask 077; cat > /etc/homelab-dash/secrets/plex.token'; unset S
 ```
 ✅ Check: `sudo stat -c '%a %U %s bytes' /etc/homelab-dash/secrets/plex.token` prints `600 root …`.
 
@@ -205,7 +207,7 @@ sudo install -d -o root -g root -m 755 /etc/systemd/system/homelab-dash-web.serv
 **6.3 Write the web drop-in: which networks may connect.** systemd enforces this inside the kernel (cgroup BPF), on top of the firewall. It still protects the page if a firewall rule is ever lost. It also sets `SocketBindAllow=` if you chose a port other than 8088.
 
 ```bash
-sudo python3 -I -B /opt/homelab-dash/detect.py --web-dropin --port 8088 | sudo install -o root -g root -m 644 /dev/stdin /etc/systemd/system/homelab-dash-web.service.d/10-network.conf
+sudo python3 -I -B /opt/homelab-dash/detect.py --web-dropin --port 8088 | sudo tee /etc/systemd/system/homelab-dash-web.service.d/10-network.conf > /dev/null
 ```
 ✅ Check: `cat /etc/systemd/system/homelab-dash-web.service.d/10-network.conf` shows
 `IPAddressAllow=<your LAN subnet> 100.64.0.0/10 fd7a:115c:a1e0::/48`. Use your own port in place of 8088 if you changed it.
@@ -213,7 +215,7 @@ sudo python3 -I -B /opt/homelab-dash/detect.py --web-dropin --port 8088 | sudo i
 **6.4 (Only if the detector mentioned /home or missing smartctl) Write the collector drop-in.**
 
 ```bash
-sudo install -d -m 755 /etc/systemd/system/homelab-dash-collector.service.d && sudo python3 -I -B /opt/homelab-dash/detect.py --collector-dropin | sudo install -m 644 /dev/stdin /etc/systemd/system/homelab-dash-collector.service.d/10-local.conf
+sudo install -d -m 755 /etc/systemd/system/homelab-dash-collector.service.d && sudo python3 -I -B /opt/homelab-dash/detect.py --collector-dropin | sudo tee /etc/systemd/system/homelab-dash-collector.service.d/10-local.conf > /dev/null
 ```
 ✅ Check: `cat /etc/systemd/system/homelab-dash-collector.service.d/10-local.conf`. Each line has a comment explaining it.
 

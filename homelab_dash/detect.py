@@ -609,8 +609,8 @@ def draft_config(f):
         if not hit and not pkg:
             continue
         port = {"jellyfin": 8096, "emby": 8096, "plex": 32400}[kind]
-        url = hit[1] if hit else "http://127.0.0.1:%d" % port
-        ok = reachable(url)
+        url = (hit[1] if hit else None) or ("http://127.0.0.1:%d" % port if pkg else "http://%s-IP:%d" % (kind.upper(), port))
+        ok = reachable(url) if "-IP:" not in url else False
         _sec(L, "media:" + kind, [("type", kind), ("url", url),
                                   ("key_file", "/etc/homelab-dash/secrets/%s.key" % kind),
                                   ("show_titles", "no")],

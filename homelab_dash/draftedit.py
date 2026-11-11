@@ -18,6 +18,11 @@ KINDS = {
 }
 LABELS = {"pihole": "Pi-hole", "jellyfin": "Jellyfin", "emby": "Emby", "plex": "Plex"}
 _URL_RE = re.compile(r"^https?://[A-Za-z0-9.\-\[\]:]+(:\d+)?(/[^\s]*)?$")
+# what detect.py writes when it can't work out an address (http://PIHOLE-IP, None)
+
+def is_placeholder(url):
+    url = (url or "").strip()
+    return bool(not url or url.lower() == "none" or re.search(r"[A-Z]+-IP\b", url))
 
 
 def _header_re(section):
@@ -51,7 +56,7 @@ def scan(text):
         for line in lines[start + 1:end]:
             m = re.match(r"^(# )?url\s*=\s*(\S*)", line)
             if m:
-                url = m.group(2) or None
+                url = None if is_placeholder(m.group(2)) else m.group(2)
         reason = ""
         k = start - 1
         while k >= 0 and lines[k].startswith("#") and not _header_re(section).match(lines[k]):
@@ -68,6 +73,8 @@ def enable(text, kind, url, conf_dir):
     """Switch a stats section on (uncomment it, or add it) with this URL."""
     if kind not in KINDS:
         raise ValueError("unknown stats card %r (use pihole, jellyfin, emby or plex)" % kind)
+    if is_placeholder(url):
+        raise ValueError("%r is a placeholder: give the real address, e.g. http://192.168.1.53:8081" % url)
     if not _URL_RE.match(url or ""):
         raise ValueError("%r is not a URL like http://192.168.1.53:8081" % url)
     section, mtype, key, fname = KINDS[kind]

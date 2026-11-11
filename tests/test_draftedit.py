@@ -77,6 +77,26 @@ class TestDraftEdit(unittest.TestCase):
             with self.assertRaises(ValueError):
                 draftedit.enable(self.text, kind, url, "/etc/homelab-dash")
 
+    def test_placeholders_are_not_urls(self):
+        # what the detector writes when it can't work out an address
+        f = facts()
+        f["docker"]["containers"][0]["macvlan_ips"] = []           # Pi-hole: no reachable address known
+        f["docker"]["containers"].append(
+            {"name": "jellyfin", "image": "jellyfin/jellyfin", "state": "running", "stack": "media", "role": "main",
+             "parent": None, "host_net": False, "macvlan_ips": [], "ports": {}})
+        text = detect.draft_config(f)
+        self.assertIn("# url = http://PIHOLE-IP", text)
+        self.assertIn("# url = http://JELLYFIN-IP:8096", text)        # not the word None
+        self.assertNotIn("url = None", text)
+        st = draftedit.scan(text)
+        self.assertIsNone(st["pihole"]["url"])                       # never offered as a default
+        self.assertIsNone(st["jellyfin"]["url"])
+        for bad in ("http://PIHOLE-IP", "http://JELLYFIN-IP:8096", "None", ""):
+            with self.assertRaises(ValueError):
+                draftedit.enable(text, "pihole", bad, "/etc/homelab-dash")
+        # a real host name that happens to contain "-ip" is fine
+        self.assertIn("url = http://my-ip.home.arpa:8081", draftedit.enable(text, "pihole", "http://my-ip.home.arpa:8081", "/etc/x"))
+
     def test_cli_round_trip(self):
         import contextlib
         import io
