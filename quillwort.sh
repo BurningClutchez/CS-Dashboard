@@ -290,12 +290,39 @@ step "Your choices (used by steps 2-9)"
 INSTALL_DIR="$(ask_path "Install the code to" "${A_INSTALL:-/opt/homelab-dash}")";   safe_dir "$INSTALL_DIR"
 CONF_DIR="$(ask_path "Config folder" "${A_CONF:-/etc/homelab-dash}")";             safe_dir "$CONF_DIR"
 printf '  Data folder is fixed: %s\n' "$DATA_DIR"
-PORT="$(ask "Dashboard port" "${A_PORT:-$D_PORT}")"
+# An earlier install keeps its port by default (phones and bookmarks use it).
+CUR_PORT="$($PY - "$CONF_DIR/config.ini" <<'EOF' 2>/dev/null || true
+import configparser, sys
+cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=("#", ";"))
+cp.read(sys.argv[1])
+print(cp.get("web", "port", fallback="").strip())
+EOF
+)"
+is_ours() {  # is_ours PORT: does the dashboard's own web server answer there?
+  $PY - "$1" <<'EOF' 2>/dev/null
+import sys, urllib.request
+req = urllib.request.Request("http://127.0.0.1:%s/" % sys.argv[1], method="HEAD")
+try:
+    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=3) as r:
+        sys.exit(0 if r.headers.get("Server") == "homelab-dash" else 1)
+except Exception:
+    sys.exit(1)
+EOF
+}
+DEF_PORT="${A_PORT:-${CUR_PORT:-$D_PORT}}"
+[[ -z $A_PORT && -z $CUR_PORT ]] && is_ours 8088 && DEF_PORT=8088   # running already, config gone
+PORT="$(ask "Dashboard port" "$DEF_PORT")"
 [[ $PORT =~ ^[0-9]+$ ]] && ((PORT >= 1024 && PORT <= 65535)) || die "port must be 1024-65535"
 if ! $PY -c 'import socket,sys; s=socket.socket(); s.bind(("0.0.0.0", int(sys.argv[1])))' "$PORT" 2>/dev/null; then
-  [[ -f $CONF_DIR/config.ini ]] && grep -qE "^port *= *$PORT" "$CONF_DIR/config.ini" \
-    && warn "port $PORT is in use (by an earlier install, it seems)" \
-    || die "port $PORT is already in use; pick another"
+  if is_ours "$PORT"; then
+    ok "port $PORT is used by the dashboard that is already running; it will be restarted with the new settings"
+  else
+    die "port $PORT is already in use by another program; pick another (sudo ss -tlnp | grep :$PORT shows which)"
+  fi
+fi
+if [[ -n $CUR_PORT && $CUR_PORT != "$PORT" ]]; then
+  warn "the port changes from $CUR_PORT to $PORT: home-screen icons and bookmarks need the new port,"
+  warn "and the firewall rules for $CUR_PORT stay until you delete them (INSTALL.md Rollback R4 shows how)"
 fi
 SUBNET="$(ask "Home network allowed to open the page" "${A_SUBNET:-$D_SUBNET}")"
 $PY -c 'import ipaddress,sys; ipaddress.ip_network(sys.argv[1], strict=False)' "$SUBNET" 2>/dev/null \
@@ -335,6 +362,30 @@ NEW_CONFIG=1
 if [[ -f $CFG_LIVE ]]; then
   if yes_no "Keep the existing $CFG_LIVE" "${A_KEEP:-y}"; then
     NEW_CONFIG=0; ((PREVIEW)) && cp "$CFG_LIVE" "$CFG"
+    # The units and firewall use the port answered above: the kept config must match it.
+    if [[ ${CUR_PORT:-8088} != "$PORT" ]]; then
+      ((PREVIEW)) || cp -p "$CFG_LIVE" "$CFG_LIVE.bak.$(date +%Y%m%d-%H%M%S)"
+      $PY - "$CFG" "$PORT" <<'EOF' || die "could not set the port in $CFG_LIVE"
+import re, sys
+path, port = sys.argv[1], sys.argv[2]
+lines = open(path).read().splitlines()
+out, in_web, done = [], False, False
+for line in lines:
+    if re.match(r"^\s*\[", line):
+        if in_web and not done:
+            out.append("port = %s" % port); done = True
+        in_web = line.strip() == "[web]"
+    elif in_web and re.match(r"^\s*port\s*=", line):
+        line = "port = %s" % port; done = True
+    out.append(line)
+if not done:
+    if not in_web:
+        out += ["", "[web]"]
+    out.append("port = %s" % port)
+open(path, "w").write("\n".join(out) + "\n")
+EOF
+      ok "kept your config, with [web] port set to $PORT to match your answer ($( ((PREVIEW)) && echo 'preview: not saved' || echo 'backup made'))"
+    fi
     [[ -n $A_LAN$A_DSUF$A_DSCH ]] && warn "kept your config: LAN addresses options not applied (edit [addresses] and [domains] in it)"
     [[ -n $A_URLS ]] && warn "kept your config: --pihole-url/--jellyfin-url/--emby-url/--plex-url not applied (edit it, or answer 'n' to keep it)"
   else
@@ -544,7 +595,8 @@ run systemctl daemon-reload
 if ((! PREVIEW)); then
   N="$(systemctl cat homelab-dash-web.service 2>/dev/null | grep -c '^IPAddressAllow=' || true)"
   [[ $N == 2 ]] && ok "network drop-in loaded (IPAddressAllow in unit + drop-in)" || warn "expected 2 IPAddressAllow= lines, found $N"
-  V="$(systemd-analyze verify /etc/systemd/system/homelab-dash-*.service /etc/systemd/system/homelab-dash-*.timer 2>&1 || true)"
+  # verify also loads unrelated units and may complain about them: keep only ours
+  V="$(systemd-analyze verify /etc/systemd/system/homelab-dash-*.service /etc/systemd/system/homelab-dash-*.timer 2>&1 | grep 'homelab-dash' || true)"
   [[ -z $V ]] && ok "units verified" || { echo "$V" | sed 's/^/    /'; warn "systemd-analyze verify printed the above"; }
 fi
 
@@ -564,9 +616,16 @@ if ((! PREVIEW)); then
 fi
 
 step "Step 7: web server"
-run systemctl enable --now homelab-dash-web.service
+run systemctl enable homelab-dash-web.service
+# restart (not just start): a web server left running by an earlier install must
+# pick up the new port, units and config
+run systemctl restart homelab-dash-web.service
 if ((! PREVIEW)); then
-  sleep 1
+  printf '  waiting for the web server to answer on port %s (up to 20 s) ' "$PORT"
+  for _ in $(seq 1 20); do
+    $PY -c 'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1).close()' "$PORT" 2>/dev/null && break
+    printf '.'; sleep 1
+  done; echo
   read -r C1 C2 C3 < <($PY - "$PORT" <<'EOF'
 import sys, urllib.request, urllib.error
 port = sys.argv[1]
@@ -582,7 +641,14 @@ def code(path, method="GET"):
 print(code("/"), code("/status.json", "POST"), code("/state.json"))
 EOF
 )
-  [[ $C1 == 200 ]] && ok "page answers (200)" || die "page did not answer (got $C1): systemctl status homelab-dash-web"
+  if [[ $C1 != 200 ]]; then
+    echo "  The page did not answer (HTTP code ${C1:-none}; 0 = no connection). What systemd says:"
+    systemctl status homelab-dash-web --no-pager 2>&1 | head -n 12 | sed 's/^/    | /' || true
+    echo "  Last log lines:"
+    journalctl -u homelab-dash-web -n 25 --no-pager 2>&1 | sed 's/^/    | /' || true
+    die "web server not answering on port $PORT (details above)"
+  fi
+  ok "page answers (200)"
   [[ $C2 == 405 && $C3 == 404 ]] && ok "read-only: POST refused (405), state.json hidden (404)" || warn "unexpected: POST=$C2 state.json=$C3"
   WEBUSER="$(ps -o user= -C python3 -o cmd= 2>/dev/null | awk '/serve.py/{print $1; exit}')"
   [[ -n $WEBUSER && $WEBUSER != root ]] && ok "runs as '$WEBUSER', not root" || warn "could not confirm the web server user"

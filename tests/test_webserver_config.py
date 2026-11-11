@@ -104,6 +104,18 @@ class TestWebServer(unittest.TestCase):
                 self.srv.handle_error(None, ("127.0.0.1", 1))
         self.assertEqual(err.getvalue(), "")
 
+    def test_idle_timeouts_not_logged(self):
+        import contextlib
+        import io
+        h = webserver.Handler.__new__(webserver.Handler)
+        h.client_address = ("10.0.0.51", 5000)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            h.log_message("Request timed out: %r", TimeoutError("timed out"))
+            h.log_message("code %d, message %s", 400, "Bad request")
+        self.assertNotIn("timed out", err.getvalue())
+        self.assertIn("10.0.0.51 code 400", err.getvalue())
+
     def test_head(self):
         r, body = self.req("HEAD", "/status.json")
         self.assertEqual(r.status, 200)

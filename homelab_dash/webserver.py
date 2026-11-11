@@ -162,7 +162,12 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def log_message(self, fmt, *args):
-        sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
+        msg = fmt % args
+        # Browsers (phones especially) keep idle connections open; the server
+        # closes them after `timeout` seconds. That's normal: don't log it.
+        if msg.startswith("Request timed out"):
+            return
+        sys.stderr.write("%s %s\n" % (self.address_string(), msg))
 
 
 class Server(ThreadingHTTPServer):
