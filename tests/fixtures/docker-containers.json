@@ -117,7 +117,11 @@
      "IPAddress": "192.168.1.53"
     }
    }
-  }
+  },
+  "Env": [
+   "TZ=Europe/Berlin",
+   "FTLCONF_webserver_port=8081o,[::]:8081o,443os"
+  ]
  },
  {
   "Id": "fff666kuma",

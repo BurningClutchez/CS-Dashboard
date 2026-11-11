@@ -157,7 +157,7 @@ class _DockerHandler(BaseHTTPRequestHandler):
                 body = json.load(fh)
         elif self.path.startswith("/containers/") and self.path.endswith("/json"):
             name = self.path.split("/")[2]
-            c = next((c for c in containers if c["Names"][0] == "/" + name), None)
+            c = next((c for c in containers if c["Names"][0] == "/" + name or c["Id"] == name), None)
             if not c:
                 self.send_response(404)
                 self.end_headers()
@@ -165,7 +165,7 @@ class _DockerHandler(BaseHTTPRequestHandler):
             st = {"Status": c["State"], "ExitCode": 0}
             if "(healthy)" in c["Status"]:
                 st["Health"] = {"Status": "healthy"}
-            body = {"State": st}
+            body = {"State": st, "Config": {"Env": c.get("Env") or []}}
         else:
             self.send_response(404)
             self.end_headers()
