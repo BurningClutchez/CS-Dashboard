@@ -516,9 +516,9 @@ sudo bash ./quillwort.sh --preview
 ```bash
 sudo bash ./quillwort.sh
 ```
-**T8. Or install unattended.** No questions: answers come from flags, then the detected defaults. Add `--preview` to try it first.
+**T8. Or install unattended.** No questions: answers come from flags, then the detected defaults. Only the vault password is asked for, at step 4. Add `--preview` to try it first.
 ```bash
-sudo bash ./quillwort.sh --yes --subnet 192.168.1.0/24 --secrets vault --vault /path/vault.yml --vault-password-file /path/pass
+sudo bash ./quillwort.sh --yes --subnet 192.168.1.0/24 --secrets vault --vault /path/vault.yml --vault-password-file
 ```
 
 ### What it does
@@ -559,7 +559,7 @@ If a step fails, it stops and names the step. Everything before that step stays 
 | `--keep-config yes\|no` | `HLDASH_KEEP_CONFIG` | keep an existing `config.ini`; default yes (no = back it up and write a new draft) |
 | `--secrets type\|vault\|skip` | `HLDASH_SECRETS` | with `--yes`: `vault` or `skip` only, and **required** if a card needs a secret |
 | `--vault FILE` | `HLDASH_VAULT` | your Ansible vault file |
-| `--vault-password-file FILE` | `HLDASH_VAULT_PASSWORD_FILE` | **required** with `--yes --secrets vault` |
+| `--vault-password-file [FILE]` | `HLDASH_VAULT_PASSWORD_FILE` | without FILE, or left out: `ansible-vault` asks for the vault password, as in the interactive install (needs a terminal; give FILE when there is none) |
 | `--vault-key FILE=KEY` | `HLDASH_VAULT_KEYS="pihole.pass=key …"` | vault key for each secret file; repeatable. Defaults `pihole_password`, `jellyfin_api_key`, `plex_token` |
 | `--shred-old-secrets yes\|no` | `HLDASH_SHRED_OLD` | after switching to the vault, shred old on-disk secrets. Default: asked, **no** with `--yes` |
 | `--firewall yes\|no` | `HLDASH_FIREWALL` | add the firewall rules; default yes |
