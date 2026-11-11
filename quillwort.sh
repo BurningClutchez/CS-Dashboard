@@ -34,7 +34,10 @@ Answers (each also readable from the environment variable shown):
   --keep-config yes|no      HLDASH_KEEP_CONFIG     default yes (if one exists)
   --secrets vault|skip|type HLDASH_SECRETS         unattended: vault or skip only
   --vault FILE              HLDASH_VAULT           Ansible vault file
-  --vault-password-file F   HLDASH_VAULT_PASSWORD_FILE  required with --yes
+  --vault-password-file [F] HLDASH_VAULT_PASSWORD_FILE  without F (or "prompt"), or left
+                                                   out: ansible-vault asks for the vault
+                                                   password, as in the interactive install
+                                                   (needs a terminal); give F when there is none
   --vault-key FILE=KEY      HLDASH_VAULT_KEYS="pihole.pass=key ..."  (repeatable)
   --shred-old-secrets yes|no HLDASH_SHRED_OLD      default: yes asked / no with --yes
   --firewall yes|no         HLDASH_FIREWALL        add ufw/firewalld rules, default yes
@@ -91,7 +94,8 @@ while (($#)); do
     --keep-config) need "$@"; A_KEEP="$2"; shift;;
     --secrets) need "$@"; A_SECRETS="$2"; shift;;
     --vault) need "$@"; A_VAULT="$2"; shift;;
-    --vault-password-file) need "$@"; A_VPASS="$2"; shift;;
+    --vault-password-file)   # the file is optional: without it, the password is asked for
+      if [[ $# -ge 2 && -n $2 && $2 != --* ]]; then A_VPASS="$2"; shift; else A_VPASS=prompt; fi;;
     --vault-key) need "$@"; A_VKEYS+=" $2"; shift;;
     --shred-old-secrets) need "$@"; A_SHRED="$2"; shift;;
     --firewall) need "$@"; A_FW="$2"; shift;;
@@ -126,8 +130,10 @@ case "$A_SECRETS" in ""|vault|skip|type) ;; *) echo "--secrets must be vault, sk
 if ((YES)) && [[ $A_SECRETS == type ]]; then
   echo "--secrets type needs a person at the keyboard; with --yes use vault or skip" >&2; exit 2
 fi
-if ((YES)) && [[ $A_SECRETS == vault && -z $A_VPASS ]]; then
-  echo "--yes with --secrets vault needs --vault-password-file (nobody is there to type it)" >&2; exit 2
+case "$A_VPASS" in prompt|ask|-) A_VPASS="";; esac   # "" = ansible-vault asks for the password
+have_tty() { { : </dev/tty; } 2>/dev/null; }
+if ((YES)) && [[ $A_SECRETS == vault && -z $A_VPASS ]] && ! have_tty; then
+  echo "--secrets vault: no terminal here to type the vault password; give --vault-password-file FILE" >&2; exit 2
 fi
 
 PY=/usr/bin/python3
@@ -501,7 +507,7 @@ else
   echo "    2) from an Ansible vault, kept in RAM only (unlock again after each reboot)"
   echo "    3) skip for now (those cards show an error until you add them)"
   case "$A_SECRETS" in type) DEF=1;; vault) DEF=2;; skip) DEF=3;; *) DEF=1; [[ -n $A_VAULT ]] && DEF=2;; esac
-  ((YES)) && [[ -z $A_SECRETS ]] && die "these cards need secrets: pass --secrets vault (with --vault and --vault-password-file) or --secrets skip"
+  ((YES)) && [[ -z $A_SECRETS ]] && die "these cards need secrets: pass --secrets vault (with --vault) or --secrets skip"
   MODE="$(ask "Choice" "$DEF")"
   echo "  secrets mode: $MODE"
   case "$MODE" in
