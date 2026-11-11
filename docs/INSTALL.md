@@ -515,8 +515,8 @@ sudo bash ./quillwort.sh --yes --subnet 192.168.1.0/24 --secrets vault --vault /
 | Offline tests | 1.2 | fake-data tests; stops if any fail (1.3 demo is skipped) | – |
 | Your choices | – | detects the server (read-only) for the defaults | install and config folders, port, subnet, Tailscale |
 | Install the code | 2 | copies the code, owned by root, read-only | – |
-| Config | 3 | drafts the config, opens your editor, re-validates until it's valid and has no secret values | keep existing config? LAN addresses card (free macvlan IPs, domain links)? domain suffix? http/https? review the draft? |
-| Secrets | 4 | only for cards that need one | 1 type them (hidden), 2 Ansible vault (RAM only), 3 skip |
+| Config | 3 | drafts the config, opens your editor, re-validates until it's valid and has no secret values | keep existing config? LAN addresses card? domain suffix? http/https? switch on Pi-hole/Jellyfin/Emby/Plex stats the detector left off, or add ones that run elsewhere (URL)? review the draft? |
+| Secrets | 4 | only for stats cards that are on (see Config) | 1 type them (hidden), 2 Ansible vault (RAM only), 3 skip |
 | Dry run | 5 | every check once, writes nothing, lists errors | continue on errors? (default no) |
 | Units | 6.1–6.5 | 3 units and the network drop-in, with your paths, port and subnet | – |
 | Sandboxed run | 6.6 | first real run; warns about errors that happen only inside the sandbox | – |
@@ -552,6 +552,8 @@ If a step fails, it stops and names the step. Everything before that step stays 
 | `--lan-addresses yes\|no` | `HLDASH_LAN_ADDRESSES` | LAN addresses card: free IPs on macvlan/ipvlan networks and local domain links; default yes (new configs only) |
 | `--domain-suffix NAME` | `HLDASH_DOMAIN_SUFFIX` | domains listed on that card; default `home.arpa` |
 | `--domain-scheme http\|https` | `HLDASH_DOMAIN_SCHEME` | how the domain links open; default `http` |
+| `--pihole-url URL` | `HLDASH_PIHOLE_URL` | switch on (or add) Pi-hole stats at this URL, e.g. a macvlan workaround port; new configs only |
+| `--jellyfin-url`, `--emby-url`, `--plex-url URL` | `HLDASH_JELLYFIN_URL`, `HLDASH_EMBY_URL`, `HLDASH_PLEX_URL` | same for media servers |
 | `--continue-on-errors` | `HLDASH_CONTINUE_ON_ERRORS=yes` | carry on when the dry run shows errors; default: stop |
 
 Secret values are never taken from flags or variables, only from a hidden prompt or your vault.
