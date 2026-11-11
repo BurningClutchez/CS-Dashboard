@@ -544,7 +544,8 @@ run systemctl daemon-reload
 if ((! PREVIEW)); then
   N="$(systemctl cat homelab-dash-web.service 2>/dev/null | grep -c '^IPAddressAllow=' || true)"
   [[ $N == 2 ]] && ok "network drop-in loaded (IPAddressAllow in unit + drop-in)" || warn "expected 2 IPAddressAllow= lines, found $N"
-  V="$(systemd-analyze verify /etc/systemd/system/homelab-dash-*.service /etc/systemd/system/homelab-dash-*.timer 2>&1 || true)"
+  # verify also loads unrelated units and may complain about them: keep only ours
+  V="$(systemd-analyze verify /etc/systemd/system/homelab-dash-*.service /etc/systemd/system/homelab-dash-*.timer 2>&1 | grep 'homelab-dash' || true)"
   [[ -z $V ]] && ok "units verified" || { echo "$V" | sed 's/^/    /'; warn "systemd-analyze verify printed the above"; }
 fi
 
@@ -566,7 +567,11 @@ fi
 step "Step 7: web server"
 run systemctl enable --now homelab-dash-web.service
 if ((! PREVIEW)); then
-  sleep 1
+  printf '  waiting for the web server to answer on port %s (up to 20 s) ' "$PORT"
+  for _ in $(seq 1 20); do
+    $PY -c 'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1).close()' "$PORT" 2>/dev/null && break
+    printf '.'; sleep 1
+  done; echo
   read -r C1 C2 C3 < <($PY - "$PORT" <<'EOF'
 import sys, urllib.request, urllib.error
 port = sys.argv[1]
@@ -582,7 +587,14 @@ def code(path, method="GET"):
 print(code("/"), code("/status.json", "POST"), code("/state.json"))
 EOF
 )
-  [[ $C1 == 200 ]] && ok "page answers (200)" || die "page did not answer (got $C1): systemctl status homelab-dash-web"
+  if [[ $C1 != 200 ]]; then
+    echo "  The page did not answer (HTTP code ${C1:-none}; 0 = no connection). What systemd says:"
+    systemctl status homelab-dash-web --no-pager 2>&1 | head -n 12 | sed 's/^/    | /' || true
+    echo "  Last log lines:"
+    journalctl -u homelab-dash-web -n 25 --no-pager 2>&1 | sed 's/^/    | /' || true
+    die "web server not answering on port $PORT (details above)"
+  fi
+  ok "page answers (200)"
   [[ $C2 == 405 && $C3 == 404 ]] && ok "read-only: POST refused (405), state.json hidden (404)" || warn "unexpected: POST=$C2 state.json=$C3"
   WEBUSER="$(ps -o user= -C python3 -o cmd= 2>/dev/null | awk '/serve.py/{print $1; exit}')"
   [[ -n $WEBUSER && $WEBUSER != root ]] && ok "runs as '$WEBUSER', not root" || warn "could not confirm the web server user"
