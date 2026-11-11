@@ -365,6 +365,101 @@
     }
   };
 
+  R.security = function (body, d) {
+    var u = d.updates || {}, rb = d.reboot || {}, fw = d.firewall, lg = d.logins || {};
+    var s = el("div", "stats");
+    stat(s, "Security updates", isNum(u.security) ? String(u.security) : "–", isNum(u.pending) ? u.pending + " updates in all" : null);
+    stat(s, "Reboot", rb.required ? "needed" : "no");
+    stat(s, "Failed SSH logins", isNum(lg.failed_24h) ? String(lg.failed_24h) : "–", "last 24 h");
+    stat(s, "Firewall", fw ? (fw.active ? (fw.name + " on") : "OFF") : "–", fw && isNum(fw.rules) ? fw.rules + " rules" : null);
+    body.appendChild(s);
+
+    function worstOf(rows) {
+      var w = "ok";
+      rows.forEach(function (r) {
+        if (r.status === "crit" || r.status === "error") w = "crit";
+        else if (r.status === "warn" && w !== "crit") w = "warn";
+      });
+      return w;
+    }
+    function fold(title, rows, render) {   // collapsible list; opens itself when something is wrong
+      if (!rows || !rows.length) return;
+      var det = el("details", "stack");
+      var st = worstOf(rows);
+      if (st !== "ok") det.open = true;
+      var sum = el("summary");
+      sum.appendChild(badgeDot(st));
+      sum.appendChild(el("span", "name", title));
+      sum.appendChild(el("span", "val", String(rows.length)));
+      det.appendChild(sum);
+      var ul = el("ul", "rows");
+      rows.forEach(function (r) { render(ul, r); });
+      det.appendChild(ul);
+      body.appendChild(det);
+    }
+
+    section(body, "Updates & reboot");
+    var ul = el("ul", "rows");
+    if (d.updates) {
+      row(ul, "Package updates", u.manager + (u.auto_updates === true ? " · automatic security updates on" :
+          u.auto_updates === false ? " · automatic security updates OFF" : ""),
+          (isNum(u.pending) ? u.pending + " pending · " : "") + (isNum(u.security) ? u.security + " security" : ""),
+          u.security ? "warn" : "ok");
+      if (isNum(u.lists_age_days)) row(ul, "Package lists", null, u.lists_age_days + " days old", u.lists_age_days > 7 ? "warn" : "ok");
+    }
+    if (d.reboot) {
+      row(ul, "Reboot", rb.kernel_newest && rb.kernel_newest !== rb.kernel_running ?
+          "running " + rb.kernel_running + ", installed " + rb.kernel_newest : (rb.packages || []).join(", ") || null,
+          rb.required ? "needed" : "not needed", rb.required ? "warn" : "ok");
+    }
+    body.appendChild(ul);
+
+    section(body, "Firewall & open ports");
+    var ul2 = el("ul", "rows");
+    if (fw) row(ul2, "Firewall", fw.name || "none found", fw.active ? "on" : "OFF", fw.active ? "ok" : "crit");
+    body.appendChild(ul2);
+    if (d.docker_bypasses_firewall) {
+      body.appendChild(el("p", "note", "Ports published by Docker skip ufw: they are reachable from everywhere " +
+        "this server is, whatever ufw says. Publish them on 127.0.0.1 or a LAN IP if they shouldn't be."));
+    }
+    fold("Listening on the network", d.ports, function (list, p) {
+      var sub = (p.hint ? p.hint + " · " : "") + (p.families || []).join(" + ");
+      var val = p.docker ? "Docker: " + p.docker + " (skips ufw)" : (p.expected ? "expected" : "not expected");
+      row(list, "port " + p.port, sub, val, p.status);
+    });
+
+    section(body, "Logins & SSH");
+    var ul3 = el("ul", "rows");
+    if (d.ssh_config) {
+      var c = d.ssh_config;
+      row(ul3, "sshd settings", "root login: " + c.permit_root_login + " · passwords: " + c.password_auth,
+          (c.findings || []).join("; ") || "keys only, no root password", c.status);
+    }
+    if (d.logins) {
+      row(ul3, "Failed logins (24 h)", (lg.top_sources || []).map(function (t) { return t.ip + " ×" + t.count; }).join(", ") || null,
+          String(lg.failed_24h), lg.failed_24h > 20 ? "warn" : "ok");
+      row(ul3, "Successful logins (24 h)", lg.last_accepted ? "last: " + lg.last_accepted : null, String(lg.accepted_24h), "ok");
+    }
+    if (d.fail2ban && d.fail2ban.jails) {
+      Object.keys(d.fail2ban.jails).forEach(function (j) {
+        row(ul3, "fail2ban: " + j, null, (d.fail2ban.jails[j] === null ? "?" : d.fail2ban.jails[j]) + " banned now", "ok");
+      });
+    }
+    body.appendChild(ul3);
+
+    fold("Exposure (systemd-analyze security)", d.exposure, function (list, e) {
+      var sub = e.dashboard ? "this dashboard: must stay at or below its install score" :
+        "informational: most stock services score 9 or more";
+      row(list, e.unit, sub, (isNum(e.score) ? e.score.toFixed(1) + " " : "") + e.label, e.dashboard ? e.status : null);
+    });
+    fold("Permissions", d.permissions, function (list, r) {
+      row(list, r.what, r.path, r.detail, r.status);
+    });
+    fold("Containers with risky settings", d.containers, function (list, c) {
+      row(list, c.name, null, c.risks.join("; "), c.status);
+    });
+  };
+
   R.error = function () {};
 
   function renderCard(c) {

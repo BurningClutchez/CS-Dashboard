@@ -45,6 +45,7 @@ no pip, no Docker, no Node and no build step.
 | Pi-hole | queries, % blocked, clients, blocklist size, blocking on/off (v5 and v6; re-uses one session) |
 | Jellyfin / Emby / Plex | playing / paused / transcoding counts (titles and users only if you opt in) |
 | LAN addresses | free IPs left on each Docker macvlan/ipvlan network (allocation pool minus containers, static IPs of stopped containers, gateway, reserved addresses and LAN devices this server has seen), with a warning when no `ip_range` is set; the `*.home.arpa` domains in use (Pi-hole local DNS, `/etc/hosts`, config) as clickable links |
+| Security | security updates and reboot needed; firewall on/off and every port listening on the network (unexpected ones flagged against the install-time baseline, Docker-published ones marked because they skip ufw); failed/successful SSH logins, fail2ban bans and risky `sshd` settings; `systemd-analyze security` scores of the dashboard (must not get weaker) and of every monitored service; permissions of the dashboard's secrets, config, code and data, the Docker socket and `docker` group; containers that are privileged, mount the Docker socket, share the host PID namespace or add powerful capabilities |
 | Game servers | online/offline and player counts via Steam query (A2S) or Minecraft ping, plus an optional process check |
 
 ## Start here

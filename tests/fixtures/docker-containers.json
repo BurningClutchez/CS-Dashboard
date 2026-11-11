@@ -68,7 +68,10 @@
    "com.docker.compose.service": "qbittorrent"
   },
   "HostConfig": {
-   "NetworkMode": "container:bbb222gluetun"
+   "NetworkMode": "container:bbb222gluetun",
+   "CapAdd": [
+    "NET_ADMIN"
+   ]
   },
   "Ports": [],
   "NetworkSettings": {
@@ -163,7 +166,10 @@
   "Status": "Exited (0) 5 hours ago",
   "Labels": {},
   "HostConfig": {
-   "NetworkMode": "bridge"
+   "NetworkMode": "bridge",
+   "Binds": [
+    "/var/run/docker.sock:/var/run/docker.sock"
+   ]
   },
   "Ports": [],
   "NetworkSettings": {
@@ -180,7 +186,8 @@
   "Status": "Restarting (1) 10 seconds ago",
   "Labels": {},
   "HostConfig": {
-   "NetworkMode": "bridge"
+   "NetworkMode": "bridge",
+   "Privileged": true
   },
   "Ports": [],
   "NetworkSettings": {

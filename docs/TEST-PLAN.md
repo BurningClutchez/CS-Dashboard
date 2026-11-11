@@ -27,7 +27,8 @@ What the automated tests cover (tests/test_collector.py, tests/test_webserver_co
 * **Read-only:** the fake Docker counts any write request and must see none. The web server returns 405 for every method except GET/HEAD and 404 for `state.json`, `..` paths and directories. It sends 421 for unknown Host names (DNS rebinding) and `no-store` on JSON.
 * Pi-hole re-uses one session instead of logging in every minute.
 * `--dry-run` writes nothing. File modes are 644 for status/history and 600 for state.
-* The draft config that `detect.py` writes always passes validation, including its `[addresses]` and `[domains]` sections.
+* The draft config that `detect.py` writes always passes validation, including its `[addresses]`, `[domains]` and `[security]` sections (with the port baseline).
+* **Security card:** pending/security updates (fake `apt-check`), a newer kernel than the running one, ufw rules, loopback-only ports excluded, an unexpected port and a Docker-published port flagged, `sshd_config` first-value-wins with `Include` and `Match` (and root/password/empty-password rules), failed logins and their sources, fail2ban bans, exposure scores, loose secret permissions, the `docker` group, privileged/socket-mounting/extra-capability containers, and cached results surviving the JSON state round trip.
 * **LAN addresses:**
   * Free IPs are the pool (`ip_range`, else the subnet) minus container IPs, static IPs of stopped containers, the gateway, reserved addresses, the server's own IPs and complete ARP entries. Incomplete ARP entries still count as free.
   * The ranges are compact, the card turns yellow below `warn_free`, and it notes a missing `ip_range`.
@@ -55,6 +56,8 @@ These are the checks in INSTALL.md. The important ones:
 | 2.13 | Domains are complete | compare with Pi-hole's *Local DNS → DNS records* and *CNAME records*, plus `grep -i home.arpa /etc/hosts`: the same names, nothing extra |
 | 2.14 | Domain links work | on the phone, tap two names: each opens that service in a new tab, and a name in `[domains] links` opens its own URL (for example the `https://…:5001/` port) |
 | 2.15 | Pi-hole failure stays contained | set `[pihole] url` to an unused port. Within about 60 s the Pi-hole card shows an error, and the LAN addresses card shows "Pi-hole data unavailable" but still lists free IPs and `/etc/hosts` names. Put the URL back afterwards |
+| 2.16 | Security card agrees with the system (read-only) | updates: `apt list --upgradable 2>/dev/null \| grep -c security`; reboot: `ls /run/reboot-required`; firewall: `sudo ufw status`; ports: `sudo ss -tlnp` (the card lists the non-loopback ones); sshd: `sudo sshd -T \| grep -E 'permitrootlogin\|passwordauthentication'`. Every value matches |
+| 2.17 | Dashboard exposure on the card | the two homelab-dash units show the same scores as INSTALL step 11, with a green check |
 
 ## Stage 3: 24-hour soak
 
@@ -74,6 +77,7 @@ Start it right after step 9 and note the time. The next day, run each command:
 | 3.10 | Page over 24 h | open the History section on the phone | charts cover the whole day and match what you'd expect (backups, Plex nights) |
 | 3.11 | Data is fresh | `$SUMMARY` | `written NN s ago` with NN < 90, no `STALE` |
 | 3.12 | LAN addresses card stayed healthy | `$SUMMARY \| grep -A3 addresses` | no errors listed; free-IP counts only moved when containers or LAN devices came and went |
+| 3.13 | Security card over 24 h | `$SUMMARY \| grep -A3 security` | no errors listed; failed-login count matches `journalctl --since -24h -t sshd -t sshd-session \| grep -c 'Failed password\|Invalid user'` |
 
 ## Stage 4: Reboot test
 
@@ -103,6 +107,7 @@ sudo systemctl reboot
 | 4.8 | Uptime reset | System card | uptime shows minutes |
 | 4.9 | Gap visible | History charts | a short break in the lines at the reboot time (no fake line drawn across it) |
 | 4.10 | LAN addresses card back | LAN addresses card | same networks, **In use** lists and domains as before the reboot. Free counts can be a little *higher* for the first minutes: the neighbor table starts empty and fills as LAN devices talk to the server. That's expected |
+| 4.11 | Security card after reboot | Security card | "Reboot: not needed" (if a reboot was pending) and the running kernel is the newest installed |
 
 If you use RAM-only secrets from a vault, also run the reboot tests in [SECRETS-FROM-VAULT.md](SECRETS-FROM-VAULT.md#reboot-test-add-to-test-plan-stage-4). Until you unlock, the LAN addresses card shows "Pi-hole data unavailable" for its domains, like the Pi-hole card itself.
 

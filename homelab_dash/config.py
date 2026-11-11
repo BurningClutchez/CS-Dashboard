@@ -18,6 +18,7 @@ DEFAULTS = {
         "sys": "/sys",
         "etc": "/etc",
         "fsroot": "",
+        "root_uid": "0",
         "bin_path": "",
     },
     "web": {
@@ -64,6 +65,14 @@ DEFAULTS = {
         "extra": "",
         "links": "",
         "hide": "",
+    },
+    "security": {
+        "enabled": "yes",
+        "expected_ports": "",
+        "failed_login_warn": "20",
+        "slow_interval": "3600",
+        "apt_check": "/usr/lib/update-notifier/apt-check",
+        "code_dir": "",
     },
     "docker": {
         "enabled": "auto",

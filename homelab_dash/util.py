@@ -32,7 +32,7 @@ class CheckError(Exception):
     """A check failed in an expected way; the message is shown on the card."""
 
 
-def run_cmd(args, timeout=10, ok_codes=(0,), path_extra=None):
+def run_cmd(args, timeout=10, ok_codes=(0,), path_extra=None, merge_stderr=False):
     """Run a command without a shell. Returns stdout as text.
 
     Raises CheckError on timeout, missing binary or an exit code that is not
@@ -46,7 +46,7 @@ def run_cmd(args, timeout=10, ok_codes=(0,), path_extra=None):
             args,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
             timeout=timeout,
             env=env,
             check=False,
@@ -58,7 +58,7 @@ def run_cmd(args, timeout=10, ok_codes=(0,), path_extra=None):
     except OSError as exc:
         raise CheckError("%s failed: %s" % (os.path.basename(args[0]), exc.strerror or exc))
     if ok_codes is not None and proc.returncode not in ok_codes:
-        err = proc.stderr.decode("utf-8", "replace").strip().splitlines()
+        err = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace").strip().splitlines()
         msg = err[-1] if err else "exit code %d" % proc.returncode
         raise CheckError("%s: %s" % (os.path.basename(args[0]), msg[:200]))
     return proc.stdout.decode("utf-8", "replace"), proc.returncode

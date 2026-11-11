@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+# Fake `systemd-analyze security UNIT`: fixed scores; nothing else is allowed.
+import sys
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+if not args or args[0] != "security":
+    sys.stderr.write("fake systemd-analyze: only 'security UNIT'\n"); sys.exit(99)
+SCORES = {"homelab-dash-collector.service": (2.4, "OK"), "homelab-dash-web.service": (0.9, "SAFE"),
+          "smbd.service": (9.6, "UNSAFE"), "nmbd.service": (9.6, "UNSAFE"), "jellyfin.service": (8.3, "EXPOSED")}
+for unit in args[1:]:
+    score, label = SCORES.get(unit, (7.0, "MEDIUM"))
+    print("  NAME  DESCRIPTION  EXPOSURE\n...")
+    print("→ Overall exposure level for %s: %.1f %s :-|" % (unit, score, label))

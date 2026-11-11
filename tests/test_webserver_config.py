@@ -217,6 +217,7 @@ class TestDetectDraft(unittest.TestCase):
                           "game": "Minecraft Bedrock", "executable": "bedrock_server", "protocol": "none", "port": None}],
             "home_separate": True,
             "local_domains": ["nas.home.arpa"],
+            "listening": [22, 53, 445, 8088],
         }
 
     def test_draft_parses_and_validates(self):
@@ -243,6 +244,7 @@ class TestDetectDraft(unittest.TestCase):
         self.assertEqual(cfg.get("domains", "suffix"), "home.arpa")
         self.assertIn("lan (192.168.1.0/24, no ip_range)", text)
         self.assertIn("Found in /etc/hosts: nas.home.arpa", text)
+        self.assertEqual(cfg.get("security", "expected_ports"), "22 53 445 8088")   # baseline
         shutil.rmtree(d)
 
     def test_dropins_and_firewall(self):

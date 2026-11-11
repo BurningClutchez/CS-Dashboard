@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+# Fake update-notifier apt-check: "UPDATES;SECURITY" on stderr.
+import sys
+sys.stderr.write("12;3")

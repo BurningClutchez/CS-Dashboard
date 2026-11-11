@@ -77,7 +77,7 @@ class TestFullRun(FakeServerTest):
         self.assertEqual(
             [c["id"] for c in self.status["cards"]],
             ["system", "disks", "services", "docker", "network", "pihole",
-             "media-jellyfin", "media-plex", "games", "addresses"])
+             "media-jellyfin", "media-plex", "games", "security", "addresses"])
 
     def test_json_is_serialisable_and_has_header(self):
         text = json.dumps(self.status, allow_nan=False)
@@ -92,7 +92,7 @@ class TestFullRun(FakeServerTest):
         errs = {c["id"]: [e["check"] for e in c["errors"]] for c in self.status["cards"]}
         self.assertEqual(errs["disks"], ["SMART /dev/sdd"])
         self.assertEqual(errs["services"], ["App that hangs"])
-        for cid in ("system", "network", "pihole", "media-jellyfin", "media-plex", "docker", "addresses"):
+        for cid in ("system", "network", "pihole", "media-jellyfin", "media-plex", "docker", "addresses", "security"):
             self.assertEqual(errs[cid], [], cid)
 
     def test_secrets_never_in_output(self):
@@ -455,6 +455,92 @@ class TestCommandLine(FakeServerTest):
         import io
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(collector.main(["--config", "/nonexistent.ini"]), 2)
+
+
+
+class TestSecurity(FakeServerTest):
+    def d(self):
+        return self.cards["security"]["data"]
+
+    def test_updates_and_reboot(self):
+        self.assertEqual((self.d()["updates"]["pending"], self.d()["updates"]["security"]), (12, 3))
+        self.assertTrue(self.d()["updates"]["auto_updates"])
+        rb = self.d()["reboot"]
+        self.assertTrue(rb["required"])
+        self.assertEqual((rb["kernel_running"], rb["kernel_newest"]), ("6.8.0-45-generic", "6.8.0-50-generic"))
+
+    def test_firewall_and_ports(self):
+        self.assertEqual(self.d()["firewall"], {"name": "ufw", "active": True, "rules": 3})
+        ports = {p["port"]: p for p in self.d()["ports"]}
+        self.assertEqual(sorted(ports), [22, 6379, 8096])          # 631 is loopback only, not listed
+        self.assertTrue(ports[22]["expected"])
+        self.assertEqual(ports[6379]["status"], "warn")
+        self.assertEqual(ports[8096]["docker"], "jellyfin")         # published by Docker: bypasses ufw
+        self.assertTrue(self.d()["docker_bypasses_firewall"])
+
+    def test_ssh(self):
+        c = self.d()["ssh_config"]
+        self.assertEqual(c["password_auth"], "yes")                 # from the Include, first value wins
+        self.assertEqual(c["status"], "warn")
+        lg = self.d()["logins"]
+        self.assertEqual((lg["failed_24h"], lg["accepted_24h"]), (4, 1))
+        self.assertEqual(lg["top_sources"][0], {"ip": "203.0.113.9", "count": 3})
+        self.assertEqual(self.d()["fail2ban"], {"jails": {"sshd": 2}})
+
+    def test_ssh_config_rules(self):
+        from homelab_dash import security
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "ssh"))
+        cfg = config.Config(None)
+        cfg.cp.read_dict({"general": {"etc": d}})
+        for text, status in (("PermitRootLogin yes\n", "crit"),            # root + passwords (default yes)
+                             ("PermitRootLogin yes\nPasswordAuthentication no\n", "warn"),
+                             ("PasswordAuthentication no\nPermitEmptyPasswords yes\n", "crit"),
+                             ("PasswordAuthentication no\nMatch all\nPermitRootLogin yes\n", "ok")):
+            with open(os.path.join(d, "ssh", "sshd_config"), "w") as fh:
+                fh.write(text)
+            self.assertEqual(security.ssh_config(cfg)["status"], status, text)
+        shutil.rmtree(d)
+
+    def test_exposure(self):
+        e = {r["unit"]: r for r in self.d()["exposure"]}
+        self.assertEqual(e["homelab-dash-collector.service"]["status"], "ok")
+        self.assertEqual(e["smbd.service"]["score"], 9.6)
+        self.assertEqual(e["smbd.service"]["status"], "unknown")    # other apps: shown, not alarmed
+
+    def test_permissions_and_containers(self):
+        p = {r["what"]: r for r in self.d()["permissions"]}
+        self.assertEqual(p["secret"]["status"], "ok")
+        self.assertEqual(p["dashboard code"]["status"], "ok")
+        self.assertIn("alice (root-equivalent)", p["Docker socket"]["detail"])
+        c = {r["name"]: r for r in self.d()["containers"]}
+        self.assertEqual(c["broken-app"]["status"], "crit")         # privileged
+        self.assertIn("Docker socket mounted", c["watchtower"]["risks"][0])
+        self.assertIn("NET_ADMIN", c["qbittorrent"]["risks"][0])
+        self.assertEqual(self.cards["security"]["status"], "crit")
+
+    def test_second_run_from_saved_state(self):
+        # The timer runs the collector every minute with state saved as JSON in between;
+        # cached results must still work after that round trip.
+        from homelab_dash import security
+        state = json.loads(json.dumps(self.state))
+        for _ in range(2):
+            card = security.collect(self.cfg, state)
+            state = json.loads(json.dumps(state))
+        ports = {p["port"]: p for p in card["data"]["ports"]}
+        self.assertEqual(ports[8096].get("docker"), "jellyfin")
+        self.assertTrue(card["data"]["updates"].get("cached"))
+
+    def test_loose_secret_is_flagged(self):
+        from homelab_dash import security
+        f = os.path.join(self.base, "secrets", "pihole.pass")
+        os.chmod(f, 0o644)
+        try:
+            rows = {r["path"]: r for r in security.permissions(self.cfg)}
+            self.assertEqual(rows[f]["status"], "crit")
+            self.assertIn("expected 600", rows[f]["detail"])
+        finally:
+            os.chmod(f, 0o600)
 
 
 if __name__ == "__main__":

@@ -319,7 +319,7 @@ Why the collector isn't lower, and why each remaining item is there:
 
 | Item it still flags | Why it's needed | What limits it |
 |---|---|---|
-| Runs as root | SMART, the Docker socket and the journal need root | Capabilities are cut down to `CAP_SYS_RAWIO` and `CAP_SYS_ADMIN` only; the whole filesystem is read-only except `/var/lib/homelab-dash`; `/root`, `/home`, `/etc/ssh` and `/etc/shadow` are hidden |
+| Runs as root | SMART, the Docker socket and the journal need root | Capabilities are cut down to `CAP_SYS_RAWIO` and `CAP_SYS_ADMIN` only; the whole filesystem is read-only except `/var/lib/homelab-dash`; `/root`, `/home`, `/etc/shadow` and the SSH private host keys are hidden (`sshd_config` stays readable for the Security card) |
 | `CAP_SYS_RAWIO`, `CAP_SYS_ADMIN` | `smartctl` needs these for ATA passthrough and NVMe log pages | Only kept if smartctl is installed (otherwise the drop-in from step 6.4 removes them) |
 | Device access | reading SMART | `DevicePolicy=closed` + read-only access to disks (`block-sd`, NVMe) and ZFS control only |
 | Network sockets | HTTP checks, Docker/Tailscale sockets | `IPAddressAllow` = localhost + private ranges only: **no Internet access** |

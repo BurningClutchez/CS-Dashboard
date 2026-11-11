@@ -97,6 +97,35 @@ def build_root(base):
     write(os.path.join(etc, "hosts"),
           "127.0.0.1 localhost\n192.168.1.10 homeserver homeserver.home.arpa\n"
           "192.168.1.20 printer.home.arpa   # office printer\n# 192.168.1.99 old.home.arpa\n")
+    # ---- Security card
+    write(os.path.join(etc, "ufw/ufw.conf"), "# /etc/ufw/ufw.conf\nENABLED=yes\nLOGLEVEL=low\n")
+    write(os.path.join(etc, "ufw/user.rules"), "*filter\n" + "### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in\n" * 3)
+    write(os.path.join(etc, "ssh/sshd_config"),
+          "Include /etc/ssh/sshd_config.d/*.conf\nPort 22\nPermitRootLogin prohibit-password\n"
+          "Match User backup\n    PasswordAuthentication no\n")
+    write(os.path.join(etc, "ssh/sshd_config.d/50-cloud-init.conf"), "PasswordAuthentication yes\n")
+    write(os.path.join(etc, "group"), "root:x:0:\nsudo:x:27:alice\ndocker:x:999:alice\n")
+    write(os.path.join(etc, "apt/apt.conf.d/20auto-upgrades"),
+          'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n')
+    write(os.path.join(fs, "run/reboot-required"), "*** System restart required ***\n")
+    write(os.path.join(fs, "run/reboot-required.pkgs"), "linux-image-6.8.0-50-generic\n")
+    for k in ("6.8.0-45-generic", "6.8.0-50-generic"):
+        os.makedirs(os.path.join(fs, "lib/modules", k), exist_ok=True)
+    write(os.path.join(fs, "var/lib/apt/periodic/update-success-stamp"), "")
+    code = os.path.join(fs, "opt/homelab-dash")
+    write(os.path.join(code, "collect.py"), "# fake\n")
+    os.chmod(code, 0o755)
+    # listening sockets: 22 (v4+v6), 8096 (Docker-published), 6379 (unexpected), 631 on loopback only
+    write(os.path.join(proc, "net/tcp"),
+          "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+          "   0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1\n"
+          "   1: 00000000:1FA0 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2\n"
+          "   2: 00000000:18EB 00000000:0000 0A 00000000:00000000 00:00000000 00000000   999        0 3\n"
+          "   3: 0100007F:0277 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 4\n"
+          "   4: 0A00A8C0:0016 0100A8C0:C350 01 00000000:00000000 00:00000000 00000000     0        0 5\n")
+    write(os.path.join(proc, "net/tcp6"),
+          "  sl  local_address remote_address st\n"
+          "   0: 00000000000000000000000000000000:0016 00000000000000000000000000000000:0000 0A 0 0 0 0 0 6\n")
     # kernel neighbor table: one LAN device inside the macvlan pool, one outside, one incomplete
     write(os.path.join(proc, "net/arp"),
           "IP address       HW type     Flags       HW address            Mask     Device\n"
@@ -165,7 +194,8 @@ class _DockerHandler(BaseHTTPRequestHandler):
             st = {"Status": c["State"], "ExitCode": 0}
             if "(healthy)" in c["Status"]:
                 st["Health"] = {"Status": "healthy"}
-            body = {"State": st, "Config": {"Env": c.get("Env") or []}}
+            body = {"State": st, "Config": {"Env": c.get("Env") or []},
+                    "HostConfig": c.get("HostConfig") or {}, "Mounts": c.get("Mounts") or []}
         else:
             self.send_response(404)
             self.end_headers()
@@ -187,6 +217,7 @@ class _DockerHandler(BaseHTTPRequestHandler):
 
 def start_docker(sock_path):
     srv = _UnixHTTPServer(sock_path, _DockerHandler)
+    os.chmod(sock_path, 0o660)  # like the real /run/docker.sock (root:docker 660)
     srv.posts = 0
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
@@ -368,6 +399,7 @@ fsroot = {fs}
 bin_path = {bin}
 check_timeout = {ct}
 deadline = 20
+root_uid = {uid}
 
 [web]
 bind = 127.0.0.1
@@ -427,6 +459,10 @@ match = valheim_server
 user = 1001
 label = Valheim process
 
+[security]
+apt_check = {bin}/apt-check
+code_dir = {fs}/opt/homelab-dash
+
 [domains]
 extra = grafana.home.arpa
 links = nas.home.arpa=https://nas.home.arpa:5001/
@@ -477,7 +513,7 @@ timeout = 1
            jellyfin=url_of(servers["jellyfin"]), jfkey=secrets["jellyfin.key"],
            plex=url_of(servers["plex"]), plexkey=secrets["plex.token"],
            a2s=servers["a2s"].getsockname()[1], mc=servers["mc"].getsockname()[1],
-           deadudp=free_port(), extra=extra)
+           deadudp=free_port(), uid=os.getuid(), extra=extra)
     path = os.path.join(base, "config.ini")
     write(path, cfg)
     os.makedirs(os.path.join(base, "data"), exist_ok=True)

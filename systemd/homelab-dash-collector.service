@@ -46,7 +46,9 @@ ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
-InaccessiblePaths=-/etc/shadow -/etc/gshadow -/root -/etc/ssh
+# /etc/ssh stays readable (the Security card reads sshd_config); its private host keys don't
+InaccessiblePaths=-/etc/shadow -/etc/gshadow -/root
+InaccessiblePaths=-/etc/ssh/ssh_host_rsa_key -/etc/ssh/ssh_host_ecdsa_key -/etc/ssh/ssh_host_ed25519_key -/etc/ssh/ssh_host_dsa_key
 
 # ---- devices: only read access to disks (for SMART) and ZFS control
 DevicePolicy=closed

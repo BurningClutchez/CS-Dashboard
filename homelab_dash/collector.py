@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 
-from . import SCHEMA, __version__, addresses, apps, disks, network, services, system
+from . import SCHEMA, __version__, addresses, apps, disks, network, security, services, system
 from .config import ConfigError, default_config_path, load
 from .util import atomic_write_json, worst
 
@@ -33,6 +33,8 @@ def card_jobs(cfg):
         jobs.append(("media", "Media", apps.collect_media))
     if cfg.sections("game"):
         jobs.append(("games", "Game servers", apps.collect_games))
+    if cfg.tristate("security", "enabled") != "no":
+        jobs.append(("security", "Security", security.collect))
     return jobs
 
 

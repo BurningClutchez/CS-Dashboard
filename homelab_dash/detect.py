@@ -483,6 +483,8 @@ def gather():
     facts["docker"] = docker()
     facts["linuxgsm"] = linuxgsm()
     facts["local_domains"] = local_domains()
+    from .security import listening_ports_in
+    facts["listening"] = sorted(listening_ports_in("/proc"))
     facts["home_separate"] = any(m["mount"] in ("/home",) for m in facts["mounts"])
     return facts
 
@@ -610,6 +612,13 @@ def draft_config(f):
          "SMART is read every smart_interval seconds and never wakes sleeping disks.")
     _sec(L, "network", [("interfaces", "auto"), ("dns_test", "example.com"),
                         ("tailscale", "yes" if n["tailscale"] else "no")])
+
+    base = f.get("listening") or []
+    _sec(L, "security", [("enabled", "yes"), ("expected_ports", " ".join(str(p) for p in base)),
+                         ("failed_login_warn", "20")],
+         "Security card. expected_ports = the ports that were listening on the network when this\n"
+         "draft was written (a baseline): a new port shows up as 'not expected'. Add or remove ports\n"
+         "here when you install or remove a service.")
 
     dk0 = f.get("docker") or {}
     vnets = dk0.get("vlan_networks") or [] if "error" not in dk0 else []
