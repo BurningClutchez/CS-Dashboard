@@ -295,10 +295,15 @@ def docker(sock="/run/docker.sock"):
             parent = by_id.get(pid) or next((v for k, v in by_id.items() if k.startswith(pid)), pid)
         if labels.get("io.hass.type") == "addon" or name.startswith("addon_"):
             role = "add-on"
-        macvlan_ips = []
+        macvlan_ips, other_ips = [], []
         for net, n in ((c.get("NetworkSettings") or {}).get("Networks") or {}).items():
+            ip = n.get("IPAddress") or ((n.get("IPAMConfig") or {}).get("IPv4Address"))
+            if not ip:
+                continue
             if n.get("NetworkID") in vlan:
-                macvlan_ips.append(n.get("IPAddress"))
+                macvlan_ips.append(ip)
+            else:
+                other_ips.append({"network": net, "ip": ip})   # bridge etc.: usually reachable from the host
         ports = {}
         for p in c.get("Ports") or []:
             if p.get("PublicPort") and p.get("Type") == "tcp":
@@ -309,22 +314,91 @@ def docker(sock="/run/docker.sock"):
                      ("Home Assistant add-ons" if role == "add-on" else None),
             "role": role, "parent": parent, "host_net": mode == "host",
             "macvlan_ips": [ip for ip in macvlan_ips if ip], "ports": ports,
+            "other_ips": other_ips, "web_ports": [], "id": c.get("Id", ""),
         })
+    # Known web apps: read the web port the container is configured with (one
+    # read-only GET each), e.g. Pi-hole v6 FTLCONF_webserver_port=8081.
+    for r in rows:
+        if any(re.search(rx, r["image"]) for rx, _k, _p in KNOWN_IMAGES) and r["id"]:
+            try:
+                info = unix_http_get_json(sock, "/containers/%s/json" % r["id"], timeout=5)
+            except CheckError:
+                continue
+            r["web_ports"] = web_ports_from_env((info.get("Config") or {}).get("Env") or [])
     nets = [{"name": n["Name"], "driver": n["Driver"], "parent": (n.get("Options") or {}).get("parent"),
              "subnet": ((n.get("IPAM") or {}).get("Config") or [{}])[0].get("Subnet"),
              "ip_range": ((n.get("IPAM") or {}).get("Config") or [{}])[0].get("IPRange")} for n in vlan.values()]
     return {"containers": rows, "vlan_networks": nets}
 
 
-def container_url(c, default_port):
-    """Best URL from the host to reach a container's web port."""
-    if c["host_net"]:
-        return "http://127.0.0.1:%d" % default_port, "host network"
-    if default_port in c["ports"]:
-        return "http://127.0.0.1:%d" % c["ports"][default_port], "published port"
-    if c["macvlan_ips"]:
-        return "http://%s:%d" % (c["macvlan_ips"][0], default_port), "macvlan IP"
-    return None, "no published port"
+WEB_PORT_ENV = ("FTLCONF_webserver_port", "WEB_PORT")   # Pi-hole v6, Pi-hole v5
+
+
+def web_ports_from_env(env):
+    """HTTP ports from a container's environment. Pi-hole v6 accepts lists like
+    "8081o,[::]:8081o,443os" (s = https, skipped); v5 uses WEB_PORT=8081."""
+    out = []
+    for item in env:
+        key, _, val = str(item).partition("=")
+        if key not in WEB_PORT_ENV:
+            continue
+        for part in val.split(","):
+            m = re.search(r"(\d+)([a-z]*)$", part.strip())
+            if m and "s" not in m.group(2):
+                port = int(m.group(1))
+                if 0 < port < 65536 and port not in out:
+                    out.append(port)
+    return out
+
+
+def container_candidates(c, default_port, by_name=None, _depth=0):
+    """Every URL that might reach a container's web UI from this server, best first:
+    host network, published web port, macvlan/ipvlan IP, other Docker network IP,
+    then any other published port (a guess). A sidecar (network_mode service:X /
+    container:X) has no network of its own, so X's addresses are used."""
+    by_name = by_name or {}
+    inside = []
+    for p in list(c.get("web_ports") or []) + [default_port]:
+        if p not in inside:
+            inside.append(p)
+    net = c
+    via = ""
+    if c.get("role") == "sidecar" and c.get("parent") in by_name and _depth == 0:
+        net = by_name[c["parent"]]
+        via = " via %s" % net["name"]
+    out = []
+    if net.get("host_net"):
+        out += [("http://127.0.0.1:%d" % p, "host network" + via) for p in inside]
+    ports = net.get("ports") or {}
+    out += [("http://127.0.0.1:%d" % ports[p], "published port %d%s" % (p, via)) for p in inside if p in ports]
+    for ip in net.get("macvlan_ips") or []:
+        out += [("http://%s:%d" % (ip, p), "macvlan IP" + via) for p in inside]
+    for o in net.get("other_ips") or []:
+        out += [("http://%s:%d" % (o["ip"], p), "Docker network %s%s" % (o["network"], via)) for p in inside]
+    out += [("http://127.0.0.1:%d" % pub, "published port %d (a guess)%s" % (priv, via))
+            for priv, pub in sorted(ports.items()) if priv not in inside]
+    seen, uniq = set(), []
+    for url, how in out:
+        if url not in seen:
+            seen.add(url)
+            uniq.append((url, how))
+    return uniq
+
+
+def container_url(c, default_port, by_name=None, max_tries=8):
+    """(url, how): the first candidate that answers from this server, otherwise
+    the best guess (marked "did not answer"), otherwise (None, why)."""
+    cands = container_candidates(c, default_port, by_name)
+    if not cands:
+        why = "no address found: not on the host network, web port %d not published, no Docker network IP" % default_port
+        if c.get("role") == "sidecar":
+            why += " (it shares %s's network, which wasn't found)" % (c.get("parent") or "another container")
+        return None, why
+    for url, how in cands[:max_tries]:
+        if reachable(url, timeout=1.5):
+            return url, how
+    url, how = cands[0]
+    return url, how + ", did not answer"
 
 
 def reachable(url, timeout=2):
@@ -573,11 +647,12 @@ def draft_config(f):
              enabled=s["active"])
     stats = {}
     if dk and "error" not in dk:
+        by_name = {c["name"]: c for c in dk["containers"]}
         for c in dk["containers"]:
             for rx, kind, port in KNOWN_IMAGES:
-                if re.search(rx, c["image"]):
-                    url, how = container_url(c, port)
-                    stats.setdefault(kind, (c, url, how))
+                if re.search(rx, c["image"]) and kind not in stats:
+                    url, how = container_url(c, port, by_name)
+                    stats[kind] = (c, url, how)
         if "uptime-kuma" in stats:
             c, url, how = stats["uptime-kuma"]
             ok = reachable(url)
@@ -599,6 +674,8 @@ def draft_config(f):
         ok = reachable(url if re.search(r":\d+", url or "") else (url or "") + ":80")
         note = "" if ok else ("\nNOT reachable from the host. A macvlan container needs a host shim\n"
                               "interface or another address; see INSTALL.md 'macvlan'.")
+        if pi and not pi[1]:
+            note = "\n" + pi[2] + "." + note
         _sec(L, "pihole", [("url", url or "http://PIHOLE-IP"), ("version", "auto"),
                            ("password_file", "/etc/homelab-dash/secrets/pihole.pass")],
              "Pi-hole (%s).%s\nv6: the web/app password.  v5: the API token (Settings > API)." % (how, note),
@@ -614,8 +691,9 @@ def draft_config(f):
         _sec(L, "media:" + kind, [("type", kind), ("url", url),
                                   ("key_file", "/etc/homelab-dash/secrets/%s.key" % kind),
                                   ("show_titles", "no")],
-             "%s stream counts%s. show_titles = yes also shows what is playing and who."
-             % (kind.capitalize(), "" if ok else " (NOT reachable from the host - check url)"),
+             "%s stream counts%s. show_titles = yes also shows what is playing and who.%s"
+             % (kind.capitalize(), "" if ok else " (NOT reachable from the host - check url)",
+                ("\nFound: container %s, %s." % (hit[0]["name"], hit[2])) if hit else ""),
              enabled=ok)
 
     L.append("")

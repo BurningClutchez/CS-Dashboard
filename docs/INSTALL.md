@@ -348,7 +348,19 @@ shows their state (from the Docker API), but Pi-hole/Jellyfin **stats** need a U
 2. **macvlan shim:** add a host-side macvlan interface with a spare IP and a route to the container.
    This is a network change outside this project; only do it if you already know you want it.
 
-The detector marks such a URL *NOT reachable from the host* and leaves the section commented out until you fix it.
+How the detector looks for a container's web address, in order (it keeps the first that answers):
+1. host network: `127.0.0.1:<port>`
+2. the published web port
+3. the macvlan/ipvlan IP
+4. the IP on any other Docker network (bridge networks are reachable from the server)
+5. any other published port, as a guess
+
+It uses the web port the container is configured with when it can read it, e.g. Pi-hole's
+`FTLCONF_webserver_port`. If the container shares another container's network
+(`network_mode: service:caddy`), it uses that container's addresses.
+
+If nothing answers, the detector marks the section *NOT reachable from the host*, leaves it commented
+out, and says what it found. The quick installer then asks you for the URL.
 
 ### Separate /home
 
