@@ -42,6 +42,9 @@ Answers (each also readable from the environment variable shown):
                                                    local domain links), default yes
   --domain-suffix NAME      HLDASH_DOMAIN_SUFFIX   default home.arpa
   --domain-scheme http|https HLDASH_DOMAIN_SCHEME  domain links open with, default http
+  --pihole-url URL          HLDASH_PIHOLE_URL      turn on / add Pi-hole stats at this URL
+  --jellyfin-url URL        HLDASH_JELLYFIN_URL    same for Jellyfin (also --emby-url,
+  --plex-url URL            HLDASH_PLEX_URL        HLDASH_EMBY_URL) and Plex
   --continue-on-errors      HLDASH_CONTINUE_ON_ERRORS=yes  carry on after dry-run errors
 
 Secret values are never accepted as options or variables: they come from a
@@ -71,6 +74,8 @@ A_CONT="${HLDASH_CONTINUE_ON_ERRORS:-}"
 A_LAN="${HLDASH_LAN_ADDRESSES:-}"
 A_DSUF="${HLDASH_DOMAIN_SUFFIX:-}"
 A_DSCH="${HLDASH_DOMAIN_SCHEME:-}"
+declare -A A_URL=([pihole]="${HLDASH_PIHOLE_URL:-}" [jellyfin]="${HLDASH_JELLYFIN_URL:-}"
+                  [emby]="${HLDASH_EMBY_URL:-}" [plex]="${HLDASH_PLEX_URL:-}")
 need() { [[ $# -ge 2 && -n $2 ]] || { echo "option $1 needs a value (see --help)" >&2; exit 2; }; }
 while (($#)); do
   case "$1" in
@@ -94,6 +99,10 @@ while (($#)); do
     --lan-addresses) need "$@"; A_LAN="$2"; shift;;
     --domain-suffix) need "$@"; A_DSUF="$2"; shift;;
     --domain-scheme) need "$@"; A_DSCH="$2"; shift;;
+    --pihole-url) need "$@"; A_URL[pihole]="$2"; shift;;
+    --jellyfin-url) need "$@"; A_URL[jellyfin]="$2"; shift;;
+    --emby-url) need "$@"; A_URL[emby]="$2"; shift;;
+    --plex-url) need "$@"; A_URL[plex]="$2"; shift;;
     -h|--help) usage; exit 0;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2;;
   esac
@@ -108,6 +117,11 @@ A_FW="$(yn "$A_FW")"; A_CONT="$(yn "$A_CONT")"; A_LAN="$(yn "$A_LAN")"
 case "$A_DSCH" in ""|http|https) ;; *) echo "--domain-scheme must be http or https" >&2; exit 2;; esac
 SUF_RE='^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$'
 if [[ -n $A_DSUF && ! ${A_DSUF,,} =~ $SUF_RE ]]; then echo "--domain-suffix must look like home.arpa" >&2; exit 2; fi
+URL_RE='^https?://[][A-Za-z0-9.:-]+(/[^[:space:]]*)?$'   # host[:port] (IPv6 in [ ]), optional path
+for k in pihole jellyfin emby plex; do
+  if [[ -n ${A_URL[$k]} && ! ${A_URL[$k]} =~ $URL_RE ]]; then echo "--$k-url must be a URL like http://192.168.1.53:8081" >&2; exit 2; fi
+done
+A_URLS="${A_URL[pihole]}${A_URL[jellyfin]}${A_URL[emby]}${A_URL[plex]}"
 case "$A_SECRETS" in ""|vault|skip|type) ;; *) echo "--secrets must be vault, skip or type" >&2; exit 2;; esac
 if ((YES)) && [[ $A_SECRETS == type ]]; then
   echo "--secrets type needs a person at the keyboard; with --yes use vault or skip" >&2; exit 2
@@ -290,6 +304,7 @@ if [[ -f $CFG_LIVE ]]; then
   if yes_no "Keep the existing $CFG_LIVE" "${A_KEEP:-y}"; then
     NEW_CONFIG=0; ((PREVIEW)) && cp "$CFG_LIVE" "$CFG"
     [[ -n $A_LAN$A_DSUF$A_DSCH ]] && warn "kept your config: LAN addresses options not applied (edit [addresses] and [domains] in it)"
+    [[ -n $A_URLS ]] && warn "kept your config: --pihole-url/--jellyfin-url/--emby-url/--plex-url not applied (edit it, or answer 'n' to keep it)"
   else
     run cp -p "$CFG_LIVE" "$CFG_LIVE.bak.$(date +%Y%m%d-%H%M%S)"
   fi
@@ -314,6 +329,48 @@ if ((NEW_CONFIG)); then
     sed -i -e '/^\[addresses\]/,/^\[/ s/^enabled = .*/enabled = no/' \
            -e '/^\[domains\]/,/^\[/ s/^enabled = .*/enabled = no/' "$DRAFT"
     ok "LAN addresses card off"
+  fi
+
+  # Stats cards that need a secret. The detector switches a card off when it can't
+  # reach the service (e.g. Pi-hole on a macvlan IP), so ask here: step 4 can only
+  # ask for the vault or the passwords for cards that are on.
+  echo "  Stats cards that need a secret (Pi-hole, Jellyfin, Emby, Plex):"
+  reach_check() {  # warn (don't fail) if the URL's host:port doesn't answer from here
+    $PY -c 'import socket,sys,urllib.parse as u; p=u.urlparse(sys.argv[1]); socket.create_connection((p.hostname, p.port or (443 if p.scheme=="https" else 80)), 2).close()' "$1" 2>/dev/null \
+      || warn "$1 does not answer from this server yet: the card shows an error until it does (macvlan? see INSTALL.md 'macvlan')"
+  }
+  stat_label() { case "$1" in pihole) echo "Pi-hole";; jellyfin) echo "Jellyfin";; emby) echo "Emby";; plex) echo "Plex";; *) echo "$1";; esac; }
+  enable_stat() {  # enable_stat KIND URL
+    [[ $2 =~ $URL_RE ]] || die "'$2' is not a URL like http://192.168.1.53:8081"
+    $PY -I -B "$SRC/detect.py" --draft-enable "$DRAFT" "$1" "$2" "$CONF_DIR" || die "could not update the draft"
+    ok "$(stat_label "$1") stats on: $2"; reach_check "$2"
+  }
+  MISSING=()
+  while IFS='|' read -r kind state url reason; do
+    label="$(stat_label "$kind")"
+    furl="${A_URL[$kind]}"
+    case "$state" in
+      on)
+        ok "$label stats: on ($url)"
+        [[ -n $furl && $furl != "$url" ]] && enable_stat "$kind" "$furl"
+        ;;
+      off)
+        warn "$label stats are off in the draft: $reason (url $url)"
+        if yes_no "Turn on $label stats" "$( [[ -n $furl ]] && echo y || { ((YES)) && echo n || echo y; } )"; then
+          enable_stat "$kind" "$(ask "$label URL, reachable from this server" "${furl:-$url}")"
+        fi
+        ;;
+      missing)
+        if [[ -n $furl ]]; then enable_stat "$kind" "$furl"; else MISSING+=("$kind"); fi
+        ;;
+    esac
+  done < <($PY -I -B "$SRC/detect.py" --draft-stats "$DRAFT")
+  if ((${#MISSING[@]})) && ((! YES)); then
+    ADD="$(ask "Add stats for one that runs elsewhere? (${MISSING[*]}; Enter = none)" "")"
+    for kind in $ADD; do
+      [[ " ${MISSING[*]} " == *" $kind "* ]] || { warn "'$kind' skipped: choose from ${MISSING[*]}"; continue; }
+      enable_stat "$kind" "$(ask "$(stat_label "$kind") URL, reachable from this server" "")"
+    done
   fi
   ED="${EDITOR:-$(command -v nano || command -v vi || echo vi)}"
   while :; do
@@ -347,7 +404,10 @@ for s in cp.sections():
 EOF
 )
 if ((${#SECRETS[@]} == 0)); then
-  ok "no enabled card needs a secret"
+  ok "no enabled card needs a secret, so there is nothing to ask (no vault, no passwords)"
+  echo "  Pi-hole, Jellyfin, Emby and Plex stats are off in $CFG_LIVE."
+  echo "  To add them: re-run and answer 'n' to keeping the config, or enable them there and see SECRETS-FROM-VAULT.md."
+  [[ -n $A_SECRETS$A_VAULT ]] && warn "--secrets/--vault were given but not used"
 else
   echo "  Cards that need a secret:"
   for line in "${SECRETS[@]}"; do printf '    [%s]  %s\n' "${line%%|*}" "${line#*|}"; done
@@ -355,7 +415,7 @@ else
   echo "    1) type them now (stored in root-only files, mode 600)"
   echo "    2) from an Ansible vault, kept in RAM only (unlock again after each reboot)"
   echo "    3) skip for now (those cards show an error until you add them)"
-  case "$A_SECRETS" in type) DEF=1;; vault) DEF=2;; skip) DEF=3;; *) DEF=1;; esac
+  case "$A_SECRETS" in type) DEF=1;; vault) DEF=2;; skip) DEF=3;; *) DEF=1; [[ -n $A_VAULT ]] && DEF=2;; esac
   ((YES)) && [[ -z $A_SECRETS ]] && die "these cards need secrets: pass --secrets vault (with --vault and --vault-password-file) or --secrets skip"
   MODE="$(ask "Choice" "$DEF")"
   echo "  secrets mode: $MODE"
@@ -407,6 +467,7 @@ else
     if ((PREVIEW)); then
       printf '  [preview] would run: sudo -u %s %s | %s -I -B %s/unlock.py --config %s\n' "$RUN_AS" "${VIEW[*]}" "$PY" "$INSTALL_DIR" "$CFG_LIVE"
     else
+      [[ -z $VPASS ]] && echo "  ansible-vault now asks for your vault password (typed, not shown):"
       sudo -u "$RUN_AS" bash -lc "$(printf '%q ' "${VIEW[@]}")" | $PY -I -B "$INSTALL_DIR/unlock.py" --config "$CFG_LIVE"
     fi
     SHRED_DEF="${A_SHRED:-$( ((YES)) && echo n || echo y)}"

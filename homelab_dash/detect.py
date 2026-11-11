@@ -690,7 +690,29 @@ def main(argv=None):
     ap.add_argument("--firewall", action="store_true", help="print the firewall commands to run")
     ap.add_argument("--port", type=int, help="dashboard port (default: from detection)")
     ap.add_argument("--json", action="store_true", help="print raw facts as JSON")
+    ap.add_argument("--draft-stats", metavar="FILE",
+                    help="(installer) list stats cards in a draft: kind|on/off/missing|url|reason")
+    ap.add_argument("--draft-enable", nargs=4, metavar=("FILE", "KIND", "URL", "CONF_DIR"),
+                    help="(installer) switch a stats card on in a draft, or add it")
     args = ap.parse_args(argv)
+    if args.draft_stats or args.draft_enable:
+        from . import draftedit
+        if args.draft_stats:
+            with open(args.draft_stats, "r", encoding="utf-8") as fh:
+                for kind, st in draftedit.scan(fh.read()).items():
+                    print("%s|%s|%s|%s" % (kind, st["state"], st["url"] or "", st["reason"]))
+            return 0
+        path, kind, url, conf_dir = args.draft_enable
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        try:
+            text = draftedit.enable(text, kind, url, conf_dir)
+        except ValueError as exc:
+            print("detect: %s" % exc, file=sys.stderr)
+            return 2
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return 0
     if os.geteuid() != 0:
         print("note: not running as root; Docker, SMART and some details may be missing "
               "(run with sudo)", file=sys.stderr)
