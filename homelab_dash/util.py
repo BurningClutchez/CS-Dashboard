@@ -129,6 +129,11 @@ def atomic_write_json(path, obj, mode=0o644):
         raise
 
 
+# Secrets under these folders live in RAM (see unlock.py): a missing file there
+# means "not unlocked since the last boot", not a mistake in the config.
+RAM_SECRET_PREFIXES = ("/run/",)
+
+
 def read_secret(path):
     """Read a secret file, refusing it unless it is a root-only regular file.
 
@@ -139,7 +144,7 @@ def read_secret(path):
     try:
         st = os.stat(path, follow_symlinks=False)
     except FileNotFoundError:
-        if path.startswith("/run/"):
+        if path.startswith(RAM_SECRET_PREFIXES):
             raise CheckError("secrets are locked (not in RAM since the last boot): "
                              "run the unlock command from docs/SECRETS-FROM-VAULT.md")
         raise CheckError("secret file missing: %s" % path)

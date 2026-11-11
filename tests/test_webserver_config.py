@@ -165,6 +165,14 @@ class TestConfig(unittest.TestCase):
 class TestDetectDraft(unittest.TestCase):
     """detect.py's draft config must always be a valid config."""
 
+    def setUp(self):
+        # Offline: never try to connect to the made-up addresses in these facts.
+        self._reachable = detect.reachable
+        detect.reachable = lambda url, timeout=2: False
+
+    def tearDown(self):
+        detect.reachable = self._reachable
+
     def facts(self):
         return {
             "host": {"hostname": "homeserver", "os": "Ubuntu", "kernel": "6.8", "arch": "x86_64",
