@@ -136,9 +136,18 @@ class TestUnlockFlow(unittest.TestCase):
         self.assertIn("pipe the decrypted vault", err.getvalue())
 
     def test_locked_message_for_run_paths(self):
-        with self.assertRaises(CheckError) as cm:
-            read_secret("/run/homelab-dash-secrets/does-not-exist.pass")
-        self.assertIn("secrets are locked", str(cm.exception))
+        # Offline: point the "RAM folder" prefix at a temp folder instead of the real
+        # /run (which exists, root-only, once the dashboard has been installed).
+        from homelab_dash import util
+        orig = util.RAM_SECRET_PREFIXES
+        util.RAM_SECRET_PREFIXES = (self.dir + "/",)
+        try:
+            with self.assertRaises(CheckError) as cm:
+                read_secret(os.path.join(self.dir, "does-not-exist.pass"))
+            self.assertIn("secrets are locked", str(cm.exception))
+        finally:
+            util.RAM_SECRET_PREFIXES = orig
+        self.assertEqual(util.RAM_SECRET_PREFIXES, ("/run/",))
 
 
 class TestPiholeSessionInRam(unittest.TestCase):

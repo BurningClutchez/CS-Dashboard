@@ -497,9 +497,18 @@ def start_all():
 
 
 def make_fakebin_executable():
+    """git already stores the fake programs as executable; only fix them if a
+    copy lost that, and never fail just because the files belong to someone
+    else (e.g. root after a `sudo git pull`)."""
     for name in os.listdir(FAKEBIN):
         p = os.path.join(FAKEBIN, name)
-        os.chmod(p, os.stat(p).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        if os.access(p, os.X_OK):
+            continue
+        try:
+            os.chmod(p, os.stat(p).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        except PermissionError:
+            raise RuntimeError("%s is not executable and belongs to another user; fix with: "
+                               "sudo chown -R $USER: %s" % (p, os.path.dirname(HERE)))
 
 
 if __name__ == "__main__":
