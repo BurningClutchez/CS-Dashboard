@@ -145,7 +145,11 @@ class Handler(BaseHTTPRequestHandler):
         self._serve(head=True)
 
     def _refuse(self):
-        self._plain(405, "read-only: only GET and HEAD are allowed", {"Allow": "GET, HEAD"})
+        # The request body (if any) is never read, so close the connection instead of
+        # parsing the leftover body as a new request.
+        self.close_connection = True
+        self._plain(405, "read-only: only GET and HEAD are allowed",
+                    {"Allow": "GET, HEAD", "Connection": "close"})
 
     do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_TRACE = do_CONNECT = _refuse
 
@@ -176,6 +180,13 @@ class Server(ThreadingHTTPServer):
         socketserver.TCPServer.server_bind(self)
         self.server_name = "homelab-dash"
         self.server_port = self.server_address[1]
+
+    def handle_error(self, request, client_address):
+        # A phone that locks or a browser that gives up mid-answer is normal:
+        # don't fill the journal with tracebacks for it.
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, socket.timeout)):
+            return
+        super().handle_error(request, client_address)
 
     def process_request(self, request, client_address):
         if not self._slots.acquire(blocking=False):

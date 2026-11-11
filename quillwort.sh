@@ -223,12 +223,29 @@ done
 ok "source: $SRC"
 
 step "Step 1.2: offline tests (fake data, nothing touched)"
+TEST_OUT="$(mktemp /tmp/homelab-dash-tests.XXXXXX)"
 if [[ $RUN_AS != root ]]; then
-  sudo -u "$RUN_AS" bash -c "cd '$SRC' && $PY -B -m unittest discover -s tests -q" </dev/null 2>&1 | grep -E '^(Ran|OK|FAILED)'
+  NOT_MINE="$(find "$SRC" ! -user "$RUN_AS" -print -quit 2>/dev/null || true)"
+  [[ -n $NOT_MINE ]] && warn "some files in $SRC are not owned by $RUN_AS (e.g. $NOT_MINE). If the tests fail, run:  sudo chown -R $RUN_AS: $SRC"
+  TEST_CMD=(sudo -u "$RUN_AS" bash -c "cd '$SRC' && $PY -B -m unittest discover -s tests")
 else
-  (cd "$SRC" && $PY -B -m unittest discover -s tests -q) 2>&1 | grep -E '^(Ran|OK|FAILED)'
+  TEST_CMD=(bash -c "cd '$SRC' && $PY -B -m unittest discover -s tests")
 fi
-ok "tests passed"
+echo "  running the offline tests as $RUN_AS (about 20-60 s) ..."
+if "${TEST_CMD[@]}" </dev/null >"$TEST_OUT" 2>&1; then
+  grep -E '^(Ran|OK)' "$TEST_OUT" | sed 's/^/  /'
+  rm -f "$TEST_OUT"
+  ok "tests passed"
+else
+  grep -E '^(Ran|FAILED)' "$TEST_OUT" | sed 's/^/  /' || true
+  echo "  Failing tests:"
+  grep -E '^(FAIL|ERROR):' "$TEST_OUT" | sed 's/^/    /' || echo "    (none named: the test run itself crashed)"
+  echo "  Last lines of the output:"
+  tail -n 25 "$TEST_OUT" | sed 's/^/    | /'
+  echo "  Full output saved in $TEST_OUT  (read it with: sudo less $TEST_OUT)"
+  echo "  Run the tests yourself, as $RUN_AS:  cd $SRC && python3 -m unittest discover -s tests -v"
+  die "offline tests failed; nothing was installed (details above)"
+fi
 printf '  Step 1.3 (optional fake-data demo) is skipped. To try it later: python3 %s/tests/demo.py --port 8099\n' "$SRC"
 
 # ------------------------------------------------------------- the questions

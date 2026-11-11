@@ -87,6 +87,23 @@ class TestWebServer(unittest.TestCase):
             self.assertEqual(r.status, 405, m)
             self.assertEqual(r.getheader("Allow"), "GET, HEAD")
 
+    def test_refused_request_closes_connection(self):
+        # the unread body must not be parsed as a second request on the same connection
+        r, _ = self.req("POST", "/status.json", body=b"x" * 100)
+        self.assertEqual(r.status, 405)
+        self.assertEqual(r.getheader("Connection"), "close")
+
+    def test_client_hangup_is_not_logged(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            try:
+                raise BrokenPipeError(32, "Broken pipe")
+            except BrokenPipeError:
+                self.srv.handle_error(None, ("127.0.0.1", 1))
+        self.assertEqual(err.getvalue(), "")
+
     def test_head(self):
         r, body = self.req("HEAD", "/status.json")
         self.assertEqual(r.status, 200)
